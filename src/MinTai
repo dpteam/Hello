@@ -1,0 +1,11 @@
+#!/bin/bash
+/usr/bin/i686-pc-mingw32-gcc.exe \
+ -o hello.exe hello.c \
+  -lOpenGL32 -lGlu32 \
+ -L../Library/Frameworks/SDL_mingw32.Framework/lib \
+ -I../Library/Frameworks/SDL_mingw32.Framework/include/SDL \
+  -lmingw32 -lSDLMain -lSDL -mwindows -mno-cygwin \
+ -L../Library/Frameworks/SDL_ttf_mingw32.Framework/lib \
+ -I../Library/Frameworks/SDL_ttf_mingw32.Framework/include/SDL \
+  -lSDL_ttf
+./hello.exe

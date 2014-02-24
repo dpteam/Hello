@@ -1,0 +1,6 @@
+#!/bin/bash
+/usr/bin/i686-pc-mingw32-g++.exe -static-libgcc -static-libstdc++ \
+ ./hello2.cpp \
+ -L../Library/Frameworks/SDL_mingw32.Framework/lib \
+ -I../Library/Frameworks/SDL_mingw32.Framework/include/SDL \
+ -lOpenGL32 -lGlu32 -lmingw32 -lSDLMain -lSDL -mwindows -mno-cygwin
