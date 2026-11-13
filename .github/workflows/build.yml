@@ -64,12 +64,12 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
       # Без этих DLL hello.exe запустится только там, где стоит MSYS2.
-      # Набор вычисляется по таблицам импорта, а не хардкодится:
-      # tools/collect_dlls.py обходит зависимости рекурсивно.
+      # Набор не хардкодится: ldd показывает полный транзитивный список,
+      # а всё, что резолвится в /ucrt64/bin, — это наши зависимости.
+      # Системные DLL из C:/Windows копировать не нужно.
       - name: Собрать портативный дистрибутив
         run: |
           set -euo pipefail
-          export MSYSTEM_PREFIX=/ucrt64
           mkdir -p dist
 
           cp README.md LICENSE dist/
@@ -77,8 +77,26 @@ jobs:
           cp assets/fonts/DejaVuSansMono-Bold.ttf dist/
           cp assets/fonts/LICENSE dist/DejaVu-LICENSE
           cp assets/fonts/AUTHORS dist/DejaVu-AUTHORS
+          cp build/hello.exe dist/
 
-          python tools/collect_dlls.py build/hello.exe dist
+          ldd build/hello.exe | awk '/=> \/ucrt64\/bin\// {print $3}' | sort -u > dlls.txt
+          if [ ! -s dlls.txt ]; then
+            echo "ОШИБКА: ldd не нашёл ни одной зависимости"
+            exit 1
+          fi
+
+          while read -r dll; do
+            cp "$dll" dist/
+          done < dlls.txt
+
+          count=$(wc -l < dlls.txt)
+          echo "Скопировано DLL: $count"
+
+          if ldd build/hello.exe | grep -qi "not found"; then
+            echo "ОШИБКА: есть неразрешённые зависимости"
+            ldd build/hello.exe | grep -i "not found"
+            exit 1
+          fi
 
           echo "--- содержимое dist ---"
           ls -lh dist/

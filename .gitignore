@@ -12,6 +12,9 @@ refs/*
 build/
 build-*/
 out/
+dist/
+dist-*/
+dist_*/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/

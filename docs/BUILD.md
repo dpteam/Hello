@@ -185,33 +185,48 @@ cmake --install build --prefix /usr/local
 iconv, gettext, pcre2, GCC runtime). Без них программа не запустится
 на машине без MSYS2.
 
-Имена не надо перечислять руками — есть скрипт:
+### В MSYS2 — через ldd (так делает CI)
 
 ```bash
-export MSYSTEM_PREFIX=/ucrt64
 mkdir -p dist
-cp README.md LICENSE assets/fonts/DejaVuSansMono-Bold.ttf dist/
-python tools/collect_dlls.py build/hello.exe dist
+cp build/hello.exe README.md LICENSE dist/
+cp assets/fonts/DejaVuSansMono-Bold.ttf dist/
+
+# Всё, что резолвится в /ucrt64/bin, — наши зависимости.
+# Системные DLL из C:/Windows копировать не нужно.
+ldd build/hello.exe | awk '/=> \/ucrt64\/bin\// {print $3}' | sort -u |
+    while read -r dll; do cp "$dll" dist/; done
 ```
 
-Скрипт рекурсивно обходит таблицы импорта PE (корректно разбирает и
-PE32, и PE32+), копирует недостающие DLL и в конце проверяет, что
-закрыты все несистемные зависимости. Возвращает ненулевой код, если
-чего-то не хватает.
+`ldd` показывает полный транзитивный список, поэтому набор не разъедется,
+если SDL2 или FreeType в следующей версии потянут что-то новое.
 
-Только проверить готовую папку:
+### Без MSYS2 — через Python
+
+Если MSYS2 нет, а DLL лежат в `C:\...\ucrt64\bin`, есть скрипт, который
+разбирает таблицы импорта PE сам:
 
 ```bash
-python tools/collect_dlls.py --check dist
+python tools/collect_dlls.py build/hello.exe dist
+python tools/collect_dlls.py --check dist   # только проверить
 ```
 
-Проверить, что сборка самодостаточна (без MSYS2 в `PATH`):
+Скрипт корректно разбирает и PE32, и PE32+ (x64), рекурсивно обходит
+зависимости и возвращает ненулевой код, если чего-то не хватает.
+
+### Проверка
+
+Убедиться, что сборка самодостаточна — запустить с чистым `PATH`:
 
 ```cmd
 set "PATH=%SystemRoot%\System32;%SystemRoot%"
 cd dist
 hello.exe --version
+hello.exe --screenshot smoke.bmp --theme green
 ```
+
+Если `PATH` содержит MSYS2, ошибка «не хватает DLL» останется
+незамеченной — проверять надо именно с чистым.
 
 Итоговый размер — около 13 МБ, из них 11 МБ это GLib/HarfBuzz/FreeType,
 которые тянет SDL2_ttf.
