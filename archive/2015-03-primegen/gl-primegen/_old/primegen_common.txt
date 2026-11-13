@@ -1,0 +1,22 @@
+﻿// *** WinMain ***
+//
+//int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
+
+// *** main ***
+//
+//int width,height;        // TODO: Make config file!
+//BOOL bQuit = FALSE;
+//freopen("CONIN$", "r", stdin); 
+//freopen("CONOUT$", "w", stdout); 
+//freopen("CONOUT$", "w", stderr);
+//const char* TitleStatus = "Hello, world!"; // placeholder
+//float theta = 0.0f;
+//TitleStatus << status << endl;
+
+
+// *** Prime ***
+//
+//for(int i = 0; i < 2147483647; i += rand()%divs_count(2)+2) // Генерация простого числа от 2 и более
+//if (divs_count(i) == 2) // Если число - простое.
+//std::cout << i << std::endl; // Отображение в консоль
+//Sleep(250); // Ждать 250 макросекунд, 25% от секунды

@@ -1,0 +1,43 @@
+# Project: hello
+# Compiler: Default GCC compiler
+# Compiler Type: MingW 3
+# Makefile created by wxDev-C++ IDE 7.4.2.569 on 09.03.15 19:04
+
+WXLIBNAME = wxmsw29u
+CPP       = g++.exe
+CC        = gcc.exe
+WINDRES   = "windres.exe"
+OBJ       = Objects/MingW/hello.o Objects/MingW/hello_private.res
+LINKOBJ   = "Objects/MingW/hello.o" Objects/MingW/hello_private.res
+LIBS      = -L"Z:/DEV/IDE/wxDev-Cpp/lib/wx/gcc_lib" -L"Z:/DEV/IDE/wxDev-Cpp/lib"  
+INCS      = -I"Z:/DEV/IDE/wxDev-Cpp/include"
+CXXINCS   = -I"Z:/DEV/IDE/wxDev-Cpp/" -I"Z:/DEV/IDE/wxDev-Cpp/" -I"Z:/DEV/IDE/wxDev-Cpp/include/common"
+RCINCS    = --include-dir "Z:/DEV/IDE/WXDEV-~1/include/common"
+BIN       = Output/MingW/hello.exe
+DEFINES   = 
+CXXFLAGS  = $(CXXINCS) $(DEFINES)   -w
+CFLAGS    = $(INCS) $(DEFINES)   -w
+GPROF     = gprof.exe
+ifeq ($(OS),Windows_NT)
+   RM = del /Q
+   FixPath = $(subst /,\,$1)
+else
+   RM = rm -f
+   FixPath = $1
+endif
+LINK      = g++.exe
+
+.PHONY: all all-before all-after clean clean-custom
+all: all-before $(BIN) all-after
+
+clean: clean-custom
+	$(RM) $(call FixPath,$(LINKOBJ)) "$(call FixPath,$(BIN))"
+
+$(BIN): $(OBJ)
+	$(LINK) $(LINKOBJ) -o "$(BIN)" $(LIBS) 
+
+Objects/MingW/hello.o: $(GLOBALDEPS) hello.cpp
+	$(CPP) -c hello.cpp -o Objects/MingW/hello.o $(CXXFLAGS)
+
+Objects/MingW/hello_private.res: Objects/MingW/hello_private.rc 
+	$(WINDRES) --input-format=rc -o Objects/MingW/hello_private.res $(RCINCS) Objects/MingW/HELLO_~1.RC -O coff

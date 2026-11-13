@@ -1,0 +1,94 @@
+name: build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    name: Linux (GCC)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установить зависимости
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build \
+              libsdl2-dev libsdl2-ttf-dev
+
+      - name: Настроить
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DHELLO_WERROR=ON
+
+      - name: Собрать
+        run: cmake --build build
+
+      - name: Тесты
+        run: ctest --test-dir build --output-on-failure
+
+  windows:
+    name: Windows (MSYS2 UCRT64)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-SDL2
+            mingw-w64-ucrt-x86_64-SDL2_ttf
+
+      - name: Настроить
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DHELLO_WERROR=ON
+
+      - name: Собрать
+        run: cmake --build build
+
+      - name: Тесты
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Артефакт
+        uses: actions/upload-artifact@v4
+        with:
+          name: hello-windows
+          path: |
+            build/hello.exe
+          if-no-files-found: error
+
+  macos:
+    name: macOS (Clang)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установить зависимости
+        run: brew install cmake sdl2 sdl2_ttf
+
+      - name: Настроить
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DHELLO_WERROR=ON \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix sdl2);$(brew --prefix sdl2_ttf)"
+
+      - name: Собрать
+        run: cmake --build build -j"$(sysctl -n hw.ncpu)"
+
+      - name: Тесты
+        run: ctest --test-dir build --output-on-failure

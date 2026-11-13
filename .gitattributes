@@ -1,22 +1,74 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Нормализация переносов строк
+# ---------------------------------------------------------------------------
+# Исходники — LF. Скрипты Windows (.bat/.cmd/.ps1) — CRLF, иначе ломаются.
+* text=auto eol=lf
 
-# Custom for Visual Studio
-*.cs     diff=csharp
-*.sln    merge=union
-*.csproj merge=union
-*.vbproj merge=union
-*.fsproj merge=union
-*.dbproj merge=union
+*.c      text eol=lf
+*.h      text eol=lf
+*.in     text eol=lf
+*.md     text eol=lf
+*.txt    text eol=lf
+*.py     text eol=lf
+*.sh     text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.cfg    text eol=lf
+*.rc     text eol=lf
+*.cmake  text eol=lf
+CMakeLists.txt text eol=lf
 
-# Standard to msysgit
-*.doc	 diff=astextplain
-*.DOC	 diff=astextplain
-*.docx diff=astextplain
-*.DOCX diff=astextplain
-*.dot  diff=astextplain
-*.DOT  diff=astextplain
-*.pdf  diff=astextplain
-*.PDF	 diff=astextplain
-*.rtf	 diff=astextplain
-*.RTF	 diff=astextplain
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+*.ps1    text eol=crlf
+
+# ---------------------------------------------------------------------------
+# Бинарные файлы — не трогать
+# ---------------------------------------------------------------------------
+*.ttf    binary
+*.otf    binary
+*.png    binary
+*.ico    binary
+*.icns   binary
+*.bmp    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.dll    binary
+*.exe    binary
+*.lib    binary
+*.a      binary
+*.o      binary
+*.obj    binary
+*.7z     binary
+*.zip    binary
+*.rar    binary
+*.gz     binary
+*.pdn    binary
+*.ani    binary
+*.cur    binary
+*.icl    binary
+*.raw    binary
+*.res    binary
+*.pdb    binary
+
+# ---------------------------------------------------------------------------
+# Диффы и слияния
+# ---------------------------------------------------------------------------
+*.sln     merge=union
+*.csproj  merge=union
+*.vcxproj merge=union
+*.doc     diff=astextplain
+*.docx    diff=astextplain
+*.pdf     diff=astextplain
+*.rtf     diff=astextplain
+
+# ---------------------------------------------------------------------------
+# Архив: исторические файлы не нормализуем
+# ---------------------------------------------------------------------------
+# В archive/ лежат срезы «как было»: cp1251, CRLF, смешанные кодировки.
+# Конвертация убила бы доказательную ценность (даты, байтовые диффы).
+archive/** -text
+archive/** -diff
+
+# refs/ — рабочая папка, в git не попадает, но на всякий случай
+refs/** -text
