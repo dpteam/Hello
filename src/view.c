@@ -56,7 +56,8 @@ static bool reserve_rows(View *view, size_t extra)
 }
 
 static bool push_row(View *view, const char *text, size_t len, ViewKind kind,
-                     TTF_Font *font, SDL_Renderer *ren, const Theme *theme)
+                     TTF_Font *font, SDL_Renderer *ren, const Theme *theme,
+                     size_t line_index, size_t offset)
 {
     if (!reserve_rows(view, 1))
         return false;
@@ -78,6 +79,9 @@ static bool push_row(View *view, const char *text, size_t len, ViewKind kind,
     row->w = 0;
     row->h = 0;
     row->kind = kind;
+    row->line_index = line_index;
+    row->offset = offset;
+    row->length = len;
 
     if (row->tex != NULL)
         SDL_QueryTexture(row->tex, NULL, NULL, &row->w, &row->h);
@@ -91,10 +95,11 @@ static bool push_row(View *view, const char *text, size_t len, ViewKind kind,
 
 static bool wrap_line(View *view, const char *text, size_t len, ViewKind kind,
                       TTF_Font *font, SDL_Renderer *ren, const Theme *theme,
-                      int max_width)
+                      int max_width, size_t line_index, size_t base_offset)
 {
     if (max_width <= 0) {
-        return push_row(view, text, len, kind, font, ren, theme);
+        return push_row(view, text, len, kind, font, ren, theme, line_index,
+                        base_offset);
     }
 
     char measure[VIEW_MEASURE_MAX];
@@ -147,7 +152,7 @@ static bool wrap_line(View *view, const char *text, size_t len, ViewKind kind,
 
         if (row_end > row_start) {
             if (!push_row(view, text + row_start, row_end - row_start, kind,
-                          font, ren, theme))
+                          font, ren, theme, line_index, base_offset + row_start))
                 return false;
         }
 
@@ -176,8 +181,10 @@ static bool add_line(View *view, const char *text, ViewKind kind,
     if (copy == NULL)
         return false;
 
-    view->lines[view->line_count].text = copy;
-    view->lines[view->line_count].kind = kind;
+    size_t index = view->line_count;
+    view->lines[index].text = copy;
+    view->lines[index].kind = kind;
+    view->lines[index].at_ms = SDL_GetTicks();
     ++view->line_count;
 
     size_t len = strlen(copy);
@@ -190,7 +197,7 @@ static bool add_line(View *view, const char *text, ViewKind kind,
 
         if (end > pos || pos == 0) {
             if (!wrap_line(view, copy + pos, end - pos, kind, font, ren, theme,
-                           wrap_width))
+                           wrap_width, index, pos))
                 return false;
         }
 
@@ -236,7 +243,7 @@ static void rebuild_rows(View *view, TTF_Font *font, SDL_Renderer *ren,
 
             if (end > pos || pos == 0)
                 wrap_line(view, line->text + pos, end - pos, line->kind, font,
-                          ren, theme, wrap_width);
+                          ren, theme, wrap_width, i, pos);
 
             if (end >= len)
                 break;
@@ -337,6 +344,18 @@ int view_scroll_offset(const View *view)
     return view ? view->scroll : 0;
 }
 
+int view_visible_start(const View *view, int visible_rows)
+{
+    if (view == NULL || visible_rows <= 0)
+        return 0;
+
+    int total = (int)view->row_count;
+    int start = total - visible_rows - view->scroll;
+    if (start < 0)
+        start = 0;
+    return start;
+}
+
 void view_draw(const View *view, SDL_Renderer *ren, int x, int y_top,
                int line_h, int visible_rows)
 {
@@ -344,9 +363,7 @@ void view_draw(const View *view, SDL_Renderer *ren, int x, int y_top,
         return;
 
     int total = (int)view->row_count;
-    int start = total - visible_rows - view->scroll;
-    if (start < 0)
-        start = 0;
+    int start = view_visible_start(view, visible_rows);
 
     for (int i = 0; i < visible_rows; ++i) {
         int index = start + i;
@@ -361,4 +378,108 @@ void view_draw(const View *view, SDL_Renderer *ren, int x, int y_top,
         SDL_Rect dst = {x, y, row->w, row->h};
         SDL_RenderCopy(ren, row->tex, NULL, &dst);
     }
+}
+
+size_t view_line_count(const View *view)
+{
+    return view ? view->line_count : 0;
+}
+
+const ViewLine *view_line_at(const View *view, size_t index)
+{
+    if (view == NULL || index >= view->line_count)
+        return NULL;
+    return &view->lines[index];
+}
+
+int view_row_at(const View *view, int mouse_y, int area_y, int line_h,
+                int visible_rows)
+{
+    if (view == NULL || line_h <= 0 || visible_rows <= 0)
+        return -1;
+
+    int rel = mouse_y - area_y;
+    if (rel < 0)
+        return -1;
+
+    int slot = rel / line_h;
+    if (slot < 0 || slot >= visible_rows)
+        return -1;
+
+    int total = (int)view->row_count;
+    int start = view_visible_start(view, visible_rows);
+    int index = start + slot;
+    if (index < 0 || index >= total)
+        return -1;
+
+    return index;
+}
+
+size_t view_row_text(const View *view, int row, char *out, size_t cap)
+{
+    if (view == NULL || out == NULL || cap == 0)
+        return 0;
+
+    if (row < 0 || row >= (int)view->row_count) {
+        out[0] = '\0';
+        return 0;
+    }
+
+    const ViewRow *r = &view->rows[row];
+    if (r->line_index >= view->line_count) {
+        out[0] = '\0';
+        return 0;
+    }
+
+    const char *src = view->lines[r->line_index].text;
+    size_t src_len = strlen(src);
+    if (r->offset >= src_len) {
+        out[0] = '\0';
+        return 0;
+    }
+
+    size_t len = r->length;
+    if (r->offset + len > src_len)
+        len = src_len - r->offset;
+    if (len >= cap)
+        len = cap - 1;
+
+    memcpy(out, src + r->offset, len);
+    out[len] = '\0';
+    return len;
+}
+
+size_t view_rows_text(const View *view, int from, int to, char *out,
+                      size_t cap)
+{
+    if (view == NULL || out == NULL || cap == 0)
+        return 0;
+
+    out[0] = '\0';
+
+    if (from > to) {
+        int swap = from;
+        from = to;
+        to = swap;
+    }
+
+    size_t used = 0;
+    for (int row = from; row <= to; ++row) {
+        char line[VIEW_MEASURE_MAX];
+        size_t len = view_row_text(view, row, line, sizeof(line));
+        if (len == 0 && row != from)
+            continue;
+
+        if (used + len + 2 > cap)
+            break;
+
+        if (used > 0)
+            out[used++] = '\n';
+
+        memcpy(out + used, line, len);
+        used += len;
+        out[used] = '\0';
+    }
+
+    return used;
 }

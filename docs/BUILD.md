@@ -8,11 +8,26 @@
 | Компилятор C | C11 | GCC, Clang, MSVC 2019+ |
 | SDL2 | 2.0.14 | libsdl.org |
 | SDL2_ttf | 2.0.15 | libsdl.org |
+| Python 3.9+ | только для `tools/` | необязательно |
 | Шрифт | DejaVu Sans Mono Bold | лежит в `assets/fonts/` |
 
 SDL2_ttf 2.0.15 — минимальная версия из-за `TTF_SizeUTF8` с корректной
 обработкой суррогатов. Более старые версии работают, но могут обрезать
 эмодзи.
+
+Для рисования треугольника-логотипа нужен SDL 2.0.18+ (там появился
+`SDL_RenderGeometry`). На более старых версиях проект собирается,
+логотип просто не рисуется — `#if SDL_VERSION_ATLEAST` в `app.c`.
+
+Python нужен только для утилит: генератор иконки, сбор DLL,
+разбор PE-файлов. Сама сборка проекта от него не зависит.
+
+Для рисования треугольника-логотипа нужен SDL 2.0.18+ (там появился
+`SDL_RenderGeometry`). На более старых версиях проект собирается,
+логотип просто не рисуется — `#if SDL_VERSION_ATLEAST` в `app.c`.
+
+Python нужен только для утилит: генератор иконки, сбор DLL,
+разбор PE-файлов. Сама сборка проекта от него не зависит.
 
 ## Windows: MSYS2 (UCRT64) — рекомендуемый путь
 
@@ -165,34 +180,50 @@ cmake --install build --prefix /usr/local
 
 ## Портативная сборка для Windows
 
-Чтобы `hello.exe` работал без установленного MSYS2, нужно положить рядом
-DLL:
+`hello.exe` зависит от SDL2, SDL2_ttf и их транзитивных библиотек
+(FreeType, HarfBuzz, GLib, Graphite2, libpng, zlib, bzip2, brotli,
+iconv, gettext, pcre2, GCC runtime). Без них программа не запустится
+на машине без MSYS2.
+
+Имена не надо перечислять руками — есть скрипт:
 
 ```bash
+export MSYSTEM_PREFIX=/ucrt64
 mkdir -p dist
-cp build/hello.exe dist/
-cp /ucrt64/bin/SDL2.dll dist/
-cp /ucrt64/bin/SDL2_ttf.dll dist/
-cp /ucrt64/bin/libfreetype-6.dll dist/
-cp /ucrt64/bin/libbz2-1.dll dist/
-cp /ucrt64/bin/libbrotlidec.dll dist/
-cp /ucrt64/bin/libbrotlicommon.dll dist/
-cp /ucrt64/bin/libpng16-16.dll dist/
-cp /ucrt64/bin/zlib1.dll dist/
-mkdir -p dist/assets/fonts
-cp assets/fonts/*.ttf dist/assets/fonts/
+cp README.md LICENSE assets/fonts/DejaVuSansMono-Bold.ttf dist/
+python tools/collect_dlls.py build/hello.exe dist
 ```
 
-Проверить зависимости конкретного бинаря:
+Скрипт рекурсивно обходит таблицы импорта PE (корректно разбирает и
+PE32, и PE32+), копирует недостающие DLL и в конце проверяет, что
+закрыты все несистемные зависимости. Возвращает ненулевой код, если
+чего-то не хватает.
+
+Только проверить готовую папку:
 
 ```bash
-objdump -p build/hello.exe | grep "DLL Name"
+python tools/collect_dlls.py --check dist
 ```
 
-Если хотите один файл без DLL — нужен статический SDL2, которого
-в MSYS2 нет. Варианты: собрать SDL2 из исходников с
-`-DSDL_STATIC=ON -DSDL_SHARED=OFF`, либо использовать `zig cc`
-с линковкой статических библиотек.
+Проверить, что сборка самодостаточна (без MSYS2 в `PATH`):
+
+```cmd
+set "PATH=%SystemRoot%\System32;%SystemRoot%"
+cd dist
+hello.exe --version
+```
+
+Итоговый размер — около 13 МБ, из них 11 МБ это GLib/HarfBuzz/FreeType,
+которые тянет SDL2_ttf.
+
+**Про Windows 7.** Бинарник собран под UCRT, ему нужны
+`api-ms-win-crt-*.dll`. На Windows 10 и 11 они есть в системе.
+На Windows 7 требуется установленный
+[Universal C Runtime](https://support.microsoft.com/kb/2999226)
+(обычно приходит с обновлениями).
+
+Если нужен один файл без DLL — соберите SDL2 статически
+(`-DSDL_STATIC=ON -DSDL_SHARED=OFF`) или используйте `zig cc`.
 
 ## Генерация иконки
 

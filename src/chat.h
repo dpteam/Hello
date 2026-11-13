@@ -50,6 +50,10 @@ const char *chat_generate(Chat *chat, const char *prompt, double temperature);
 /* Случайная фраза из всей памяти (для приветствия). */
 const char *chat_random(Chat *chat);
 
+/* Насколько бот «в форме»: 0 — еле жив, 1 — полон сил.
+ * Влияет на охоту сочинять и на порог «не понял». */
+void chat_set_vitality(Chat *chat, float vitality);
+
 /* Диагностика для /stats. */
 size_t chat_markov_states(const Chat *chat);
 size_t chat_markov_vocab(const Chat *chat);

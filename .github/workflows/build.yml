@@ -54,7 +54,7 @@ jobs:
       - name: Настроить
         run: |
           cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_BUILD_TYPE=Release \
             -DHELLO_WERROR=ON
 
       - name: Собрать
@@ -63,12 +63,49 @@ jobs:
       - name: Тесты
         run: ctest --test-dir build --output-on-failure
 
+      # Без этих DLL hello.exe запустится только там, где стоит MSYS2.
+      # Набор вычисляется по таблицам импорта, а не хардкодится:
+      # tools/collect_dlls.py обходит зависимости рекурсивно.
+      - name: Собрать портативный дистрибутив
+        run: |
+          set -euo pipefail
+          export MSYSTEM_PREFIX=/ucrt64
+          mkdir -p dist
+
+          cp README.md LICENSE dist/
+          cp docs/BUILD.md dist/
+          cp assets/fonts/DejaVuSansMono-Bold.ttf dist/
+          cp assets/fonts/LICENSE dist/DejaVu-LICENSE
+          cp assets/fonts/AUTHORS dist/DejaVu-AUTHORS
+
+          python tools/collect_dlls.py build/hello.exe dist
+
+          echo "--- содержимое dist ---"
+          ls -lh dist/
+
+      # Проверяем именно чистый PATH: если MSYS2 в нём есть, ошибка
+      # «не хватает DLL» останется незамеченной.
+      - name: Проверить дистрибутив без MSYS2 в PATH
+        shell: cmd
+        run: |
+          set "PATH=%SystemRoot%\System32;%SystemRoot%"
+          cd dist
+          hello.exe --version
+          if errorlevel 1 exit /b 1
+          hello.exe --screenshot smoke.bmp --theme green
+          if errorlevel 1 exit /b 1
+          if not exist smoke.bmp (
+            echo ОШИБКА: скриншот не создан
+            exit /b 1
+          )
+          del smoke.bmp
+          echo ОК: бинарник работает без MSYS2 в PATH
+
       - name: Артефакт
         uses: actions/upload-artifact@v4
         with:
-          name: hello-windows
-          path: |
-            build/hello.exe
+          name: hello-windows-x64
+          path: dist/
           if-no-files-found: error
 
   macos:

@@ -12,21 +12,15 @@
 #include <SDL_ttf.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "theme.h"
-
-typedef enum {
-    VIEW_SYSTEM,
-    VIEW_USER,
-    VIEW_BOT,
-    VIEW_WARNING,
-    VIEW_ERROR,
-    VIEW_HINT
-} ViewKind;
+#include "viewkind.h"
 
 typedef struct {
     char *text;
     ViewKind kind;
+    uint32_t at_ms; /* когда добавлена, от старта сессии */
 } ViewLine;
 
 typedef struct {
@@ -34,6 +28,11 @@ typedef struct {
     int w;
     int h;
     ViewKind kind;
+
+    /* Откуда взялась эта визуальная строка — для копирования текста. */
+    size_t line_index;
+    size_t offset; /* байтовое смещение внутри lines[line_index].text */
+    size_t length;
 } ViewRow;
 
 typedef struct {
@@ -70,10 +69,30 @@ void view_scroll(View *view, int rows, int visible_rows);
 int view_scroll_offset(const View *view);
 int view_max_scroll(const View *view, int visible_rows);
 
+/* Первая видимая визуальная строка. */
+int view_visible_start(const View *view, int visible_rows);
+
 /* Рисует область высотой visible_rows строк с нижней привязкой. */
 void view_draw(const View *view, SDL_Renderer *ren, int x, int y_top,
                int line_h, int visible_rows);
 
 SDL_Color view_color(const Theme *theme, ViewKind kind);
+
+/* --- Доступ к содержимому ------------------------------------------- */
+
+size_t view_line_count(const View *view);
+const ViewLine *view_line_at(const View *view, size_t index);
+
+/* Индекс визуальной строки под курсором. -1 — мимо текста.
+ * area_y — верхняя граница области текста. */
+int view_row_at(const View *view, int mouse_y, int area_y, int line_h,
+                int visible_rows);
+
+/* Текст визуальной строки (без переноса). Возвращает число байт. */
+size_t view_row_text(const View *view, int row, char *out, size_t cap);
+
+/* Склеивает диапазон визуальных строк [from..to] через '\n'. */
+size_t view_rows_text(const View *view, int from, int to, char *out,
+                      size_t cap);
 
 #endif /* HELLO_VIEW_H */

@@ -79,6 +79,8 @@ struct Chat {
 
     char generated[512];
 
+    float vitality; /* 0..1, влияет на охоту сочинять */
+
     unsigned rng;
 };
 
@@ -240,6 +242,7 @@ Chat *chat_create(unsigned seed)
 
     chat->rng = seed ? seed : 1u;
     chat->last_reply = (size_t)-1;
+    chat->vitality = 1.0f;
     chat->cap = SEED_COUNT + 32;
     chat->items = (char **)calloc(chat->cap, sizeof(char *));
     chat->uses = (unsigned *)calloc(chat->cap, sizeof(unsigned));
@@ -520,6 +523,17 @@ const char *chat_random(Chat *chat)
     return chat->items[rng_next(chat) % (uint32_t)chat->count];
 }
 
+void chat_set_vitality(Chat *chat, float vitality)
+{
+    if (chat == NULL)
+        return;
+    if (vitality < 0.0f)
+        vitality = 0.0f;
+    if (vitality > 1.0f)
+        vitality = 1.0f;
+    chat->vitality = vitality;
+}
+
 const char *chat_generate(Chat *chat, const char *prompt, double temperature)
 {
     if (chat == NULL)
@@ -567,6 +581,10 @@ const char *chat_reply(Chat *chat, const char *input)
     Word query[CHAT_MAX_QUERY_WORDS];
     size_t nq = split_words(input, query, CHAT_MAX_QUERY_WORDS);
     double avg_len = average_length(chat);
+
+    /* Уставший бот хуже узнаёт знакомое: порог «не понял» растёт. */
+    double threshold =
+        (double)CHAT_GENERIC_THRESHOLD * (1.25 - 0.25 * (double)chat->vitality);
 
     for (size_t i = 0; i < chat->count; ++i) {
         float sim = chat_similarity(input, chat->items[i]);
@@ -616,12 +634,14 @@ const char *chat_reply(Chat *chat, const char *input)
             top_rank = rank;
     }
 
-    if (best_n == 0 || top_base < CHAT_GENERIC_THRESHOLD) {
+    if (best_n == 0 || top_base < threshold) {
         /* Не понял — либо сочиняем, либо отделываемся вежливостью.
-         * Чем больше выучено, тем охотнее сочиняем. */
+         * Чем больше выучено, тем охотнее сочиняем. Уставший бот
+         * сочиняет неохотно. */
         double improv = CHAT_IMPROV_STRENGTH *
                         ((double)chat->learned /
-                         ((double)chat->learned + 12.0));
+                         ((double)chat->learned + 12.0)) *
+                        (0.3 + 0.7 * (double)chat->vitality);
         if (chat->learned >= 3 && rng_unit(chat) < improv) {
             const char *line = chat_generate(chat, input, 1.05);
             if (line != NULL && line[0] != '\0') {

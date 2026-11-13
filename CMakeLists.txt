@@ -23,10 +23,13 @@ find_package(SDL2_ttf CONFIG REQUIRED)
 add_library(hello_core STATIC
     src/chat.c
     src/config.c
+    src/export.c
     src/input.c
     src/markov.c
+    src/pet.c
     src/text_metrics.c
-    src/utf8.c)
+    src/utf8.c
+    src/viewkind.c)
 
 target_include_directories(hello_core PUBLIC src)
 target_compile_features(hello_core PUBLIC c_std_11)
@@ -120,9 +123,14 @@ if(HELLO_BUILD_TESTS)
         tests/test_input.c
         tests/test_config.c
         tests/test_metrics.c
-        tests/test_markov.c)
+        tests/test_markov.c
+        tests/test_export.c
+        tests/test_pet.c
+        tests/test_viewkind.c
+        tests/test_theme.c
+        src/theme.c)
 
-    target_link_libraries(hello_tests PRIVATE hello_core)
+    target_link_libraries(hello_tests PRIVATE hello_core SDL2::SDL2)
     target_include_directories(hello_tests PRIVATE src tests)
     target_compile_features(hello_tests PRIVATE c_std_11)
 

@@ -9,13 +9,16 @@
 #include <string.h>
 
 #include "chat.h"
+#include "export.h"
 #include "input.h"
+#include "pet.h"
 #include "platform.h"
 #include "render.h"
 #include "theme.h"
 #include "utf8.h"
 #include "version.h"
 #include "view.h"
+#include "viewkind.h"
 
 #define APP_PADDING 10
 #define APP_WINDOW_TITLE "Codename Hello"
@@ -28,11 +31,15 @@
 
 typedef struct {
     Config cfg;
+
+    /* Своя копия темы: встроенные неизменяемы, а /color правит копию. */
+    Theme theme_storage;
     const Theme *theme;
 
     Chat *chat;
     View view;
     Input input;
+    Pet pet;
 
     TTF_Font *font;
     SDL_Window *window;
@@ -42,10 +49,16 @@ typedef struct {
     int height;
     int line_h;
     int visible_rows;
+    int text_bottom;
 
     bool running;
     bool screenshot;
     bool fullscreen;
+
+    /* Выделение мышью: индексы визуальных строк включительно. */
+    bool sel_active;
+    int sel_anchor;
+    int sel_end;
 
     uint32_t pending_at; /* 0 — ответа в очереди нет */
     char *pending_input;
@@ -57,6 +70,8 @@ typedef struct {
     double fps;
 
     const char *config_path;
+    char pet_path[CONFIG_PATH_MAX];
+    char export_path[CONFIG_PATH_MAX];
 } App;
 
 static char *trim_dup(const char *text)
@@ -112,11 +127,26 @@ static void compute_layout(App *app)
     int area_top = APP_PADDING;
     int area_bottom = app->height - APP_PADDING - status_h - input_h - 6;
 
+    app->text_bottom = area_bottom;
+
     int rows = (area_bottom - area_top) / app->line_h;
     if (rows < 1)
         rows = 1;
     app->visible_rows = rows;
 }
+
+/* Верх области текста. Текст прижат к низу, как в терминале. */
+static int text_area_y(const App *app)
+{
+    int rows_used = app->visible_rows;
+    if ((int)app->view.row_count < rows_used)
+        rows_used = (int)app->view.row_count;
+    if (rows_used < 0)
+        rows_used = 0;
+    return app->text_bottom - rows_used * app->line_h;
+}
+
+static void copy_selection(App *app);
 
 static void relayout(App *app)
 {
@@ -130,14 +160,20 @@ static void add_help(App *app)
     add_line(app, "Команды:", VIEW_HINT);
     add_line(app, "  /help            — эта справка", VIEW_HINT);
     add_line(app, "  /theme [имя]     — список или смена темы", VIEW_HINT);
+    add_line(app, "  /color <роль> R G B — поменять цвет (bg, bot, user…)", VIEW_HINT);
+    add_line(app, "  /theme save <имя>— сохранить текущие цвета в тему", VIEW_HINT);
     add_line(app, "  /say <тема>      — сочинить ответ цепью Маркова", VIEW_HINT);
     add_line(app, "  /stats           — статистика сессии", VIEW_HINT);
+    add_line(app, "  /pet             — состояние бота", VIEW_HINT);
+    add_line(app, "  /feed            — покормить бота", VIEW_HINT);
+    add_line(app, "  /export [файл]   — сохранить диалог в Markdown", VIEW_HINT);
     add_line(app, "  /forget          — забыть выученные фразы", VIEW_HINT);
     add_line(app, "  /save, /load     — сохранить/загрузить память", VIEW_HINT);
     add_line(app, "  /clear           — очистить экран", VIEW_HINT);
     add_line(app, "  /about, /quit    — о программе и выход", VIEW_HINT);
     add_line(app, "Клавиши: PgUp/PgDn — прокрутка, ↑/↓ — история ввода, "
-                  "Ctrl+V — вставка, F11 — полный экран, Esc — выход.",
+                  "мышь — выделить, Ctrl+C — копировать, Ctrl+V — вставка, "
+                  "F11 — полный экран, Esc — выход.",
              VIEW_HINT);
 }
 
@@ -157,6 +193,9 @@ static void save_state(App *app)
             fclose(out);
         }
     }
+
+    if (app->pet_path[0] != '\0')
+        pet_save(&app->pet, app->pet_path);
 
     /* Геометрия окна: чтобы следующий запуск открылся там же и такого же
      * размера. Пишем только если окно реально существует. */
@@ -259,20 +298,120 @@ static void run_command(App *app, const char *line)
             ++app->messages;
         }
     } else if (strcmp(command, "theme") == 0) {
-        if (*args == '\0') {
-            addf(app, VIEW_HINT, "Текущая тема: %s. Доступны: green, amber, ice, paper.",
-                 app->theme->name);
-        } else {
-            const Theme *theme = theme_by_name(args);
-            if (theme == NULL) {
-                addf(app, VIEW_WARNING, "Нет такой темы: %s", args);
+        /* /theme save <имя> — сохранить текущие цвета как тему. */
+        if (strncmp(args, "save", 4) == 0 && (args[4] == ' ' || args[4] == '\0')) {
+            char *name = args + 4;
+            while (*name == ' ')
+                ++name;
+            if (*name == '\0') {
+                add_line(app, "Напиши имя: /theme save моя", VIEW_WARNING);
             } else {
-                app->theme = theme;
-                snprintf(app->cfg.theme, sizeof(app->cfg.theme), "%s", theme->name);
-                relayout(app);
-                addf(app, VIEW_SYSTEM, "Тема: %s", theme->name);
+                char path[CONFIG_PATH_MAX];
+                snprintf(path, sizeof(path), "themes/%s.theme", name);
+                snprintf(app->theme_storage.name,
+                         sizeof(app->theme_storage.name), "%s", name);
+                if (theme_save(&app->theme_storage, path))
+                    addf(app, VIEW_SYSTEM, "Тема сохранена: %s", path);
+                else
+                    addf(app, VIEW_ERROR,
+                         "Не удалось сохранить тему. Есть ли папка themes/?");
             }
+        } else if (*args == '\0') {
+            addf(app, VIEW_HINT, "Текущая тема: %s", app->theme->name);
+            add_line(app, "Доступны: green, amber, ice, paper, а также "
+                          "файлы themes/<имя>.theme", VIEW_HINT);
+        } else {
+            char path[CONFIG_PATH_MAX];
+            snprintf(path, sizeof(path), "themes/%s.theme", args);
+
+            const Theme *base = theme_by_name(args);
+            if (base != NULL) {
+                theme_copy(&app->theme_storage, base);
+            } else if (theme_load(path, &app->theme_storage)) {
+                snprintf(app->theme_storage.name,
+                         sizeof(app->theme_storage.name), "%s", args);
+            } else {
+                addf(app, VIEW_WARNING, "Нет такой темы: %s", args);
+                return;
+            }
+
+            app->theme = &app->theme_storage;
+            snprintf(app->cfg.theme, sizeof(app->cfg.theme), "%s",
+                     app->theme->name);
+            relayout(app);
+            addf(app, VIEW_SYSTEM, "Тема: %s", app->theme->name);
         }
+    } else if (strcmp(command, "color") == 0) {
+        char role[32] = {0};
+        unsigned r = 0, g = 0, b = 0;
+        if (sscanf(args, "%31s %u %u %u", role, &r, &g, &b) != 4) {
+            add_line(app, "Формат: /color <роль> R G B, например /color bot 0 255 120",
+                     VIEW_WARNING);
+            add_line(app, "Роли: bg system user bot warning error hint input "
+                          "status caret separator selection logo_a logo_b logo_c",
+                     VIEW_HINT);
+            return;
+        }
+
+        SDL_Color *color = theme_role(&app->theme_storage, role);
+        if (color == NULL) {
+            addf(app, VIEW_WARNING, "Нет такой роли: %s", role);
+            return;
+        }
+
+        color->r = (Uint8)(r > 255 ? 255 : r);
+        color->g = (Uint8)(g > 255 ? 255 : g);
+        color->b = (Uint8)(b > 255 ? 255 : b);
+        app->theme = &app->theme_storage;
+        relayout(app);
+        addf(app, VIEW_SYSTEM, "Цвет %s: %u %u %u", role, (unsigned)color->r,
+             (unsigned)color->g, (unsigned)color->b);
+    } else if (strcmp(command, "pet") == 0) {
+        PetMood mood = pet_mood(&app->pet);
+        addf(app, VIEW_SYSTEM, "Бот: %s · настроение %.0f · силы %.0f",
+             pet_mood_name(mood), (double)app->pet.mood,
+             (double)app->pet.energy);
+        addf(app, VIEW_HINT, "Сообщений за всё время: %u",
+             app->pet.messages);
+    } else if (strcmp(command, "feed") == 0) {
+        pet_feed(&app->pet, SDL_GetTicks());
+        add_line(app, "Бот поел. Доволен.", VIEW_SYSTEM);
+    } else if (strcmp(command, "export") == 0) {
+        const char *path = (*args != '\0') ? args : app->export_path;
+        size_t count = view_line_count(&app->view);
+
+        ExportLine *lines = (ExportLine *)calloc(count ? count : 1,
+                                                 sizeof(ExportLine));
+        if (lines == NULL) {
+            add_line(app, "Не хватило памяти на экспорт.", VIEW_ERROR);
+            return;
+        }
+
+        for (size_t i = 0; i < count; ++i) {
+            const ViewLine *entry = view_line_at(&app->view, i);
+            if (entry == NULL)
+                continue;
+            lines[i].text = entry->text;
+            lines[i].kind = entry->kind;
+            lines[i].at_ms = (entry->at_ms > app->start_ticks)
+                                 ? entry->at_ms - app->start_ticks
+                                 : 0;
+        }
+
+        char meta[256];
+        snprintf(meta, sizeof(meta),
+                 "Фраз в памяти: %zu · сообщений: %llu · тема: %s",
+                 chat_count(app->chat), (unsigned long long)app->messages,
+                 app->theme->name);
+
+        bool ok = export_markdown(lines, count, path,
+                                  "Codename Hello — диалог", meta);
+        free(lines);
+
+        if (ok)
+            addf(app, VIEW_SYSTEM, "Диалог сохранён: %s", path);
+        else
+            addf(app, VIEW_ERROR, "Не удалось записать: %s", path);
     } else if (strcmp(command, "forget") == 0) {
         chat_forget(app->chat);
         add_line(app, "Выученное забыто. Встроенные фразы остались.", VIEW_SYSTEM);
@@ -325,6 +464,7 @@ static void submit(App *app)
         run_command(app, text + 1);
     } else {
         chat_learn(app->chat, text);
+        pet_on_message(&app->pet, SDL_GetTicks());
         schedule_reply(app, text);
     }
 
@@ -431,6 +571,17 @@ static void handle_key(App *app, const SDL_KeyboardEvent *event)
             case SDLK_v:
                 paste_clipboard(app);
                 break;
+            case SDLK_c:
+                copy_selection(app);
+                break;
+            case SDLK_a:
+                /* Выделить всё видимое. */
+                if (app->view.row_count > 0) {
+                    app->sel_active = true;
+                    app->sel_anchor = 0;
+                    app->sel_end = (int)app->view.row_count - 1;
+                }
+                break;
             case SDLK_l:
                 view_clear(&app->view);
                 break;
@@ -451,6 +602,82 @@ static void handle_key(App *app, const SDL_KeyboardEvent *event)
     }
 }
 
+static void copy_selection(App *app)
+{
+    if (!app->sel_active) {
+        add_line(app, "Ничего не выделено. Выдели мышью.", VIEW_WARNING);
+        return;
+    }
+
+    size_t cap = 64 * 1024;
+    char *buffer = (char *)malloc(cap);
+    if (buffer == NULL) {
+        add_line(app, "Не хватило памяти на копирование.", VIEW_ERROR);
+        return;
+    }
+
+    size_t len = view_rows_text(&app->view, app->sel_anchor, app->sel_end,
+                                buffer, cap);
+    if (len == 0) {
+        free(buffer);
+        return;
+    }
+
+    SDL_SetClipboardText(buffer);
+    free(buffer);
+
+    addf(app, VIEW_SYSTEM, "Скопировано: %zu символов.", len);
+}
+
+static void handle_mouse(App *app, const SDL_Event *event)
+{
+    int area_y = text_area_y(app);
+
+    switch (event->type) {
+    case SDL_MOUSEBUTTONDOWN:
+        if (event->button.button != SDL_BUTTON_LEFT)
+            break;
+        {
+            int row = view_row_at(&app->view, event->button.y, area_y,
+                                  app->line_h, app->visible_rows);
+            if (row < 0)
+                break;
+            app->sel_active = true;
+            app->sel_anchor = row;
+            app->sel_end = row;
+        }
+        break;
+
+    case SDL_MOUSEMOTION:
+        if (!app->sel_active)
+            break;
+        if ((event->motion.state & SDL_BUTTON_LMASK) == 0)
+            break;
+        {
+            int row = view_row_at(&app->view, event->motion.y, area_y,
+                                  app->line_h, app->visible_rows);
+            if (row >= 0)
+                app->sel_end = row;
+        }
+        break;
+
+    case SDL_MOUSEBUTTONUP:
+        if (event->button.button != SDL_BUTTON_LEFT)
+            break;
+        /* Одиночный клик без протяжки — снимаем выделение. */
+        if (app->sel_anchor == app->sel_end) {
+            int row = view_row_at(&app->view, event->button.y, area_y,
+                                  app->line_h, app->visible_rows);
+            if (row >= 0 && row == app->sel_anchor)
+                app->sel_active = false;
+        }
+        break;
+
+    default:
+        break;
+    }
+}
+
 static void handle_event(App *app, const SDL_Event *event)
 {
     switch (event->type) {
@@ -465,6 +692,11 @@ static void handle_event(App *app, const SDL_Event *event)
         break;
     case SDL_MOUSEWHEEL:
         view_scroll(&app->view, event->wheel.y * APP_SCROLL_STEP, app->visible_rows);
+        break;
+    case SDL_MOUSEBUTTONDOWN:
+    case SDL_MOUSEBUTTONUP:
+    case SDL_MOUSEMOTION:
+        handle_mouse(app, event);
         break;
     case SDL_WINDOWEVENT:
         if (event->window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
@@ -484,12 +716,20 @@ static void draw_status(App *app)
     if (app->pending_input != NULL) {
         snprintf(right, sizeof(right), "печатает…");
     } else {
-        snprintf(right, sizeof(right), "%zu фраз · %d FPS", chat_count(app->chat),
+        snprintf(right, sizeof(right), "%s · %zu фраз · %d FPS",
+                 pet_mood_name(pet_mood(&app->pet)), chat_count(app->chat),
                  (int)(app->fps + 0.5));
     }
 
     char left[APP_STATUS_MAX];
-    snprintf(left, sizeof(left), "Codename Hello %s", HELLO_VERSION);
+    if (app->sel_active) {
+        int from = app->sel_anchor < app->sel_end ? app->sel_anchor : app->sel_end;
+        int to = app->sel_anchor < app->sel_end ? app->sel_end : app->sel_anchor;
+        snprintf(left, sizeof(left), "выделено строк: %d · Ctrl+C — копировать",
+                 to - from + 1);
+    } else {
+        snprintf(left, sizeof(left), "Codename Hello %s", HELLO_VERSION);
+    }
 
     int status_y = app->height - APP_PADDING - app->line_h;
     render_text_at(app->renderer, app->font, left, app->theme->status,
@@ -499,6 +739,86 @@ static void draw_status(App *app)
     if (render_measure(app->font, right, &w, NULL))
         render_text_at(app->renderer, app->font, right, app->theme->status,
                        app->width - APP_PADDING - w, status_y);
+}
+
+/* Треугольник из макетов 2015 года. Рисуется только в свободном месте
+ * над текстом; если текста много — не рисуется вовсе. */
+static void draw_logo(App *app, int area_y)
+{
+#if SDL_VERSION_ATLEAST(2, 0, 18)
+    if (app->visible_rows <= 0 || app->line_h <= 0)
+        return;
+
+    /* Свободное место: от верхнего отступа до первой строки текста. */
+    int top = APP_PADDING;
+    int bottom = area_y;
+    int free_h = bottom - top;
+    if (free_h < app->line_h * 4)
+        return;
+
+    float cx = (float)app->width * 0.5f;
+    float cy = (float)(top + bottom) * 0.5f;
+
+    float size = (float)free_h * 0.62f;
+    float max_w = (float)app->width * 0.28f;
+    if (size > max_w)
+        size = max_w;
+    if (size < 40.0f)
+        return;
+
+    SDL_Vertex verts[3];
+
+    verts[0].position.x = cx;
+    verts[0].position.y = cy - size * 0.5f;
+    verts[0].color = app->theme->logo_a;
+    verts[0].color.a = 55;
+    verts[0].tex_coord.x = 0.0f;
+    verts[0].tex_coord.y = 0.0f;
+
+    verts[1].position.x = cx - size * 0.46f;
+    verts[1].position.y = cy + size * 0.5f;
+    verts[1].color = app->theme->logo_b;
+    verts[1].color.a = 55;
+    verts[1].tex_coord.x = 0.0f;
+    verts[1].tex_coord.y = 0.0f;
+
+    verts[2].position.x = cx + size * 0.46f;
+    verts[2].position.y = cy + size * 0.5f;
+    verts[2].color = app->theme->logo_c;
+    verts[2].color.a = 55;
+    verts[2].tex_coord.x = 0.0f;
+    verts[2].tex_coord.y = 0.0f;
+
+    const int indices[3] = {0, 1, 2};
+    SDL_RenderGeometry(app->renderer, NULL, verts, 3, indices, 3);
+#else
+    (void)app;
+    (void)area_y;
+#endif
+}
+
+static void draw_selection(App *app, int area_y)
+{
+    if (!app->sel_active || app->line_h <= 0)
+        return;
+
+    int from = app->sel_anchor < app->sel_end ? app->sel_anchor : app->sel_end;
+    int to = app->sel_anchor < app->sel_end ? app->sel_end : app->sel_anchor;
+
+    int start = view_visible_start(&app->view, app->visible_rows);
+
+    SDL_SetRenderDrawColor(app->renderer, app->theme->selection.r,
+                           app->theme->selection.g, app->theme->selection.b, 120);
+
+    for (int row = from; row <= to; ++row) {
+        int slot = row - start;
+        if (slot < 0 || slot >= app->visible_rows)
+            continue;
+
+        SDL_Rect rect = {APP_PADDING, area_y + slot * app->line_h,
+                         app->width - 2 * APP_PADDING, app->line_h};
+        SDL_RenderFillRect(app->renderer, &rect);
+    }
 }
 
 static void draw_frame(App *app, bool show_caret)
@@ -513,15 +833,10 @@ static void draw_frame(App *app, bool show_caret)
     int input_y = status_y - input_h;
     int area_bottom = input_y - 6;
 
-    /* Как в терминале: текст прижат к нижнему краю, пустое место
-     * остаётся сверху. */
-    int rows_used = app->visible_rows;
-    if ((int)app->view.row_count < rows_used)
-        rows_used = (int)app->view.row_count;
-    if (rows_used < 0)
-        rows_used = 0;
+    int area_y = text_area_y(app);
 
-    int area_y = area_bottom - rows_used * app->line_h;
+    draw_logo(app, area_y);
+    draw_selection(app, area_y);
 
     view_draw(&app->view, app->renderer, APP_PADDING, area_y, app->line_h,
               app->visible_rows);
@@ -653,10 +968,14 @@ int app_run(const AppOptions *options)
     TTF_SetFontStyle(app.font, TTF_STYLE_NORMAL);
 
     app.theme = theme_by_name(app.cfg.theme);
-    if (app.theme == NULL) {
+    if (app.theme == NULL)
         app.theme = theme_default();
-        snprintf(app.cfg.theme, sizeof(app.cfg.theme), "%s", app.theme->name);
-    }
+
+    /* Своя копия: /color меняет именно её, встроенные темы остаются
+     * нетронутыми. */
+    theme_copy(&app.theme_storage, app.theme);
+    app.theme = &app.theme_storage;
+    snprintf(app.cfg.theme, sizeof(app.cfg.theme), "%s", app.theme->name);
 
     app.chat = chat_create((unsigned)SDL_GetTicks());
     if (app.chat == NULL) {
@@ -670,6 +989,16 @@ int app_run(const AppOptions *options)
 
     view_init(&app.view, (size_t)app.cfg.max_lines);
     input_init(&app.input);
+
+    /* Состояние «тамагочи» и путь экспорта — рядом с памятью. */
+    config_profile_path(&app.cfg, "hello.pet", app.pet_path,
+                        sizeof(app.pet_path));
+    config_profile_path(&app.cfg, "hello.export.md", app.export_path,
+                        sizeof(app.export_path));
+
+    pet_init(&app.pet);
+    if (pet_load(&app.pet, app.pet_path))
+        app.pet.last_update_ms = 0; /* отсчёт начнём с этого запуска */
 
     update_size(&app);
     compute_layout(&app);
@@ -704,6 +1033,8 @@ int app_run(const AppOptions *options)
             handle_event(&app, &event);
 
         uint32_t now = SDL_GetTicks();
+        pet_update(&app.pet, now);
+
         if (app.pending_at != 0 && now >= app.pending_at)
             deliver_reply(&app);
 

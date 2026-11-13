@@ -76,5 +76,9 @@ void test_input(void);
 void test_config(void);
 void test_metrics(void);
 void test_markov(void);
+void test_export(void);
+void test_pet(void);
+void test_viewkind(void);
+void test_theme(void);
 
 #endif /* HELLO_TEST_H */

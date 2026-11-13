@@ -14,6 +14,10 @@ int main(void)
     RUN(test_config);
     RUN(test_metrics);
     RUN(test_markov);
+    RUN(test_export);
+    RUN(test_pet);
+    RUN(test_viewkind);
+    RUN(test_theme);
 
     fprintf(stderr, "\nПроверок: %d, провалов: %d\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
