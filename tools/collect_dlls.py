@@ -189,7 +189,23 @@ def check(out_dir: Path) -> int:
     return problems
 
 
+def _make_output_utf8() -> None:
+    """Консоль Windows может быть в cp1252/cp866 — русский текст в ней
+    падает с UnicodeEncodeError. Переключаем вывод на UTF-8 с заменой
+    непечатаемых символов: сообщения диагностики не должны ронять утилиту."""
+    for stream in (sys.stdout, sys.stderr):
+        encoding = getattr(stream, "encoding", None) or ""
+        if encoding.lower().replace("-", "") == "utf8":
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def main() -> int:
+    _make_output_utf8()
+
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
 
     if "--check" in sys.argv:
