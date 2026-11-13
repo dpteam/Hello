@@ -306,6 +306,7 @@ ctest --test-dir build --output-on-failure
 | `SDL2 not found` | нет `SDL2Config.cmake` | `-DCMAKE_PREFIX_PATH=/путь/к/SDL2` |
 | `undefined reference to WinMain` | не подключён `SDL2main` | проверить, что `SDL2::SDL2main` в `target_link_libraries` |
 | `undefined reference to TTF_*` | не подключён `SDL2_ttf` | `find_package(SDL2_ttf CONFIG REQUIRED)` |
+| `undefined reference to exp/log/sqrt` | не подключена `libm` | на glibc она отдельная; CMake подключает её сам через `find_library(m)` |
 | Кракозябры в окне | шрифт без кириллицы | использовать DejaVu Sans Mono |
 | Пустое окно | шрифт не найден | запускать из корня или указать `--font` |
 | `windres: command not found` | нет MSYS2 binutils | `pacman -S mingw-w64-ucrt-x86_64-binutils` |

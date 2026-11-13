@@ -19,7 +19,7 @@ option(HELLO_WERROR "Считать предупреждения ошибкам�
 find_package(SDL2 CONFIG REQUIRED)
 find_package(SDL2_ttf CONFIG REQUIRED)
 
-# --- Общая библиотека логики (без SDL, кроме темы) --------------------
+# --- Общая библиотека логики (без SDL) --------------------------------
 add_library(hello_core STATIC
     src/chat.c
     src/config.c
@@ -30,6 +30,15 @@ add_library(hello_core STATIC
 
 target_include_directories(hello_core PUBLIC src)
 target_compile_features(hello_core PUBLIC c_std_11)
+
+# libm: на glibc (Linux/macOS) математика вынесена в отдельную библиотеку.
+# В MSYS2/MinGW она входит в CRT, но явная линковка там безвредна.
+if(NOT MSVC)
+    find_library(HELLO_LIBM m)
+    if(HELLO_LIBM)
+        target_link_libraries(hello_core PUBLIC ${HELLO_LIBM})
+    endif()
+endif()
 
 if(MSVC)
     target_compile_options(hello_core PRIVATE /W4)
@@ -45,6 +54,7 @@ endif()
 add_executable(hello
     src/main.c
     src/app.c
+    src/platform.c
     src/render.c
     src/theme.c
     src/view.c)

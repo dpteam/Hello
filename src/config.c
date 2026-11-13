@@ -25,6 +25,9 @@ void config_defaults(Config *cfg)
     memset(cfg, 0, sizeof(*cfg));
     cfg->width = 800;
     cfg->height = 520;
+    cfg->window_x = CONFIG_WINDOW_POS_ANY;
+    cfg->window_y = CONFIG_WINDOW_POS_ANY;
+    cfg->save_geometry = true;
     cfg->font_size = 14;
     cfg->max_lines = 2000;
     cfg->fps_limit = 0;
@@ -35,6 +38,31 @@ void config_defaults(Config *cfg)
                 "assets/fonts/DejaVuSansMono-Bold.ttf");
     copy_string(cfg->memory_path, sizeof(cfg->memory_path), "hello.memory");
     copy_string(cfg->history_path, sizeof(cfg->history_path), "hello.history");
+    copy_string(cfg->plugins_path, sizeof(cfg->plugins_path), "plugins");
+    cfg->profile[0] = '\0';
+}
+
+void config_profile_path(const Config *cfg, const char *base, char *out,
+                         size_t cap)
+{
+    if (cfg == NULL || base == NULL || out == NULL || cap == 0)
+        return;
+
+    if (cfg->profile[0] == '\0') {
+        snprintf(out, cap, "%s", base);
+        return;
+    }
+
+    /* «hello.memory» + профиль «work» → «hello.work.memory».
+     * Точка в конце имени — разделитель расширения, вставляем перед ней. */
+    const char *dot = strrchr(base, '.');
+    if (dot == NULL || dot == base) {
+        snprintf(out, cap, "%s.%s", base, cfg->profile);
+        return;
+    }
+
+    size_t stem = (size_t)(dot - base);
+    snprintf(out, cap, "%.*s.%s%s", (int)stem, base, cfg->profile, dot);
 }
 
 static char *trim(char *s)
@@ -117,6 +145,16 @@ static void apply(Config *cfg, const char *key, const char *value)
         copy_string(cfg->memory_path, sizeof(cfg->memory_path), value);
     } else if (strcmp(key, "history") == 0) {
         copy_string(cfg->history_path, sizeof(cfg->history_path), value);
+    } else if (strcmp(key, "window_x") == 0) {
+        parse_int(value, -32768, 32767, &cfg->window_x);
+    } else if (strcmp(key, "window_y") == 0) {
+        parse_int(value, -32768, 32767, &cfg->window_y);
+    } else if (strcmp(key, "save_geometry") == 0) {
+        parse_bool(value, &cfg->save_geometry);
+    } else if (strcmp(key, "plugins") == 0) {
+        copy_string(cfg->plugins_path, sizeof(cfg->plugins_path), value);
+    } else if (strcmp(key, "profile") == 0) {
+        copy_string(cfg->profile, sizeof(cfg->profile), value);
     }
     /* Неизвестные ключи молча пропускаем: так проще добавлять новые. */
 }
@@ -175,6 +213,9 @@ bool config_save(const Config *cfg, const char *path)
     fprintf(out, "# Пути можно указывать абсолютные или относительно рабочей папки.\n\n");
     fprintf(out, "width = %d\n", cfg->width);
     fprintf(out, "height = %d\n", cfg->height);
+    fprintf(out, "window_x = %d\n", cfg->window_x);
+    fprintf(out, "window_y = %d\n", cfg->window_y);
+    fprintf(out, "save_geometry = %s\n", cfg->save_geometry ? "true" : "false");
     fprintf(out, "font_size = %d\n", cfg->font_size);
     fprintf(out, "max_lines = %d\n", cfg->max_lines);
     fprintf(out, "fps_limit = %d\n", cfg->fps_limit);
@@ -183,6 +224,8 @@ bool config_save(const Config *cfg, const char *path)
     fprintf(out, "font = %s\n", cfg->font_path);
     fprintf(out, "memory = %s\n", cfg->memory_path);
     fprintf(out, "history = %s\n", cfg->history_path);
+    fprintf(out, "plugins = %s\n", cfg->plugins_path);
+    fprintf(out, "profile = %s\n", cfg->profile);
 
     bool ok = !ferror(out);
     if (fclose(out) != 0)

@@ -107,6 +107,63 @@ static void test_save_failure(void)
     CHECK(!config_load(NULL, "x.cfg"));
 }
 
+static void test_geometry_roundtrip(void)
+{
+    const char *path = "test_config_geometry.tmp";
+
+    Config cfg;
+    config_defaults(&cfg);
+    CHECK_INT_EQ(cfg.window_x, CONFIG_WINDOW_POS_ANY);
+    CHECK_INT_EQ(cfg.window_y, CONFIG_WINDOW_POS_ANY);
+    CHECK(cfg.save_geometry);
+
+    cfg.window_x = 120;
+    cfg.window_y = 80;
+    cfg.width = 900;
+    cfg.height = 600;
+    CHECK(config_save(&cfg, path));
+
+    Config loaded;
+    config_defaults(&loaded);
+    CHECK(config_load(&loaded, path));
+
+    CHECK_INT_EQ(loaded.window_x, 120);
+    CHECK_INT_EQ(loaded.window_y, 80);
+    CHECK_INT_EQ(loaded.width, 900);
+    CHECK_INT_EQ(loaded.height, 600);
+
+    remove(path);
+}
+
+static void test_profile_path(void)
+{
+    Config cfg;
+    config_defaults(&cfg);
+
+    char out[256];
+
+    /* Без профиля — путь не меняется. */
+    config_profile_path(&cfg, "hello.memory", out, sizeof(out));
+    CHECK_STR_EQ(out, "hello.memory");
+
+    /* С профилем — вставляется перед расширением. */
+    snprintf(cfg.profile, sizeof(cfg.profile), "work");
+    config_profile_path(&cfg, "hello.memory", out, sizeof(out));
+    CHECK_STR_EQ(out, "hello.work.memory");
+
+    config_profile_path(&cfg, "data/hello.history", out, sizeof(out));
+    CHECK_STR_EQ(out, "data/hello.work.history");
+
+    /* Без расширения — дописывается в конец. */
+    config_profile_path(&cfg, "memory", out, sizeof(out));
+    CHECK_STR_EQ(out, "memory.work");
+
+    /* NULL и пустые аргументы не роняют. */
+    config_profile_path(NULL, "x", out, sizeof(out));
+    config_profile_path(&cfg, NULL, out, sizeof(out));
+    config_profile_path(&cfg, "x", NULL, 0);
+}
+
 void test_config(void)
 {
     test_defaults();
@@ -114,4 +171,6 @@ void test_config(void)
     test_missing_file();
     test_parse_quirks();
     test_save_failure();
+    test_geometry_roundtrip();
+    test_profile_path();
 }

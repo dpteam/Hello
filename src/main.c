@@ -161,6 +161,7 @@ int main(int argc, char *argv[])
 
     AppOptions options;
     options.config = cfg;
+    options.config_path = config_path;
     options.screenshot_path = screenshot;
     return app_run(&options);
 }

@@ -9,8 +9,8 @@
 #include <string.h>
 
 #include "chat.h"
-#include "icon_rgba.h"
 #include "input.h"
+#include "platform.h"
 #include "render.h"
 #include "theme.h"
 #include "utf8.h"
@@ -55,112 +55,9 @@ typedef struct {
     uint32_t start_ticks;
     uint32_t last_frame_ticks;
     double fps;
+
+    const char *config_path;
 } App;
-
-static void app_log(const char *fmt, ...)
-{
-    va_list args;
-    va_start(args, fmt);
-    vfprintf(stderr, fmt, args);
-    va_end(args);
-    fputc('\n', stderr);
-    fflush(stderr);
-}
-
-static bool file_exists(const char *path)
-{
-    if (path == NULL || path[0] == '\0')
-        return false;
-    FILE *f = fopen(path, "rb");
-    if (f == NULL)
-        return false;
-    fclose(f);
-    return true;
-}
-
-static const char *base_path(void)
-{
-    static char path[CONFIG_PATH_MAX];
-    static bool resolved = false;
-
-    if (!resolved) {
-        resolved = true;
-        char *dir = SDL_GetBasePath();
-        if (dir != NULL) {
-            size_t len = strlen(dir);
-            if (len >= sizeof(path))
-                len = sizeof(path) - 1;
-            memcpy(path, dir, len);
-            path[len] = '\0';
-            SDL_free(dir);
-        } else {
-            path[0] = '\0';
-        }
-    }
-    return path;
-}
-
-static bool try_font(const char *candidate, char *out, size_t cap)
-{
-    if (candidate == NULL || candidate[0] == '\0')
-        return false;
-
-    char full[CONFIG_PATH_MAX * 2];
-    const char *base = base_path();
-
-    const char *paths[2];
-    int count = 0;
-    paths[count++] = candidate;
-
-    if (base[0] != '\0' && candidate[0] != '/' && !(candidate[0] != '\0' && candidate[1] == ':')) {
-        snprintf(full, sizeof(full), "%s%s", base, candidate);
-        paths[count++] = full;
-    }
-
-    for (int i = 0; i < count; ++i) {
-        if (file_exists(paths[i])) {
-            snprintf(out, cap, "%s", paths[i]);
-            return true;
-        }
-    }
-    return false;
-}
-
-static bool find_font(const Config *cfg, char *out, size_t cap)
-{
-    if (try_font(cfg->font_path, out, cap))
-        return true;
-
-    static const char *const fallbacks[] = {
-        "assets/fonts/DejaVuSansMono-Bold.ttf",
-        "DejaVuSansMono-Bold/DejaVuSansMono-Bold.ttf",
-        "../assets/fonts/DejaVuSansMono-Bold.ttf",
-        "C:/Windows/Fonts/consola.ttf",
-        "C:/Windows/Fonts/lucon.ttf",
-        "C:/Windows/Fonts/courbd.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
-        "/usr/share/fonts/dejavu/DejaVuSansMono-Bold.ttf",
-        "/usr/share/fonts/TTF/DejaVuSansMono-Bold.ttf",
-        "/System/Library/Fonts/Menlo.ttc",
-        "/Library/Fonts/DejaVuSansMono-Bold.ttf",
-    };
-
-    for (size_t i = 0; i < sizeof(fallbacks) / sizeof(fallbacks[0]); ++i) {
-        if (try_font(fallbacks[i], out, cap))
-            return true;
-    }
-    return false;
-}
-
-static void set_window_icon(SDL_Window *window)
-{
-    SDL_Surface *icon = SDL_CreateRGBSurfaceWithFormatFrom(
-        (void *)kIconRgba64, 64, 64, 32, 64 * 4, SDL_PIXELFORMAT_RGBA32);
-    if (icon == NULL)
-        return;
-    SDL_SetWindowIcon(window, icon);
-    SDL_FreeSurface(icon);
-}
 
 static char *trim_dup(const char *text)
 {
@@ -249,19 +146,27 @@ static void save_state(App *app)
     if (app->cfg.memory_path[0] != '\0')
         chat_save(app->chat, app->cfg.memory_path);
 
-    if (app->cfg.history_path[0] == '\0')
-        return;
-
-    FILE *out = fopen(app->cfg.history_path, "wb");
-    if (out == NULL)
-        return;
-
-    for (size_t i = 0; i < input_history_count(&app->input); ++i) {
-        const char *line = input_history_at(&app->input, i);
-        if (line != NULL)
-            fprintf(out, "%s\n", line);
+    if (app->cfg.history_path[0] != '\0') {
+        FILE *out = fopen(app->cfg.history_path, "wb");
+        if (out != NULL) {
+            for (size_t i = 0; i < input_history_count(&app->input); ++i) {
+                const char *line = input_history_at(&app->input, i);
+                if (line != NULL)
+                    fprintf(out, "%s\n", line);
+            }
+            fclose(out);
+        }
     }
-    fclose(out);
+
+    /* Геометрия окна: чтобы следующий запуск открылся там же и такого же
+     * размера. Пишем только если окно реально существует. */
+    if (app->config_path != NULL && app->cfg.save_geometry &&
+        app->window != NULL && !app->screenshot) {
+        SDL_GetWindowPosition(app->window, &app->cfg.window_x,
+                              &app->cfg.window_y);
+        SDL_GetWindowSize(app->window, &app->cfg.width, &app->cfg.height);
+        config_save(&app->cfg, app->config_path);
+    }
 }
 
 static void load_history(App *app)
@@ -663,20 +568,20 @@ static int save_screenshot(App *app, const char *path)
     SDL_Surface *shot = SDL_CreateRGBSurfaceWithFormat(
         0, app->width, app->height, 32, SDL_PIXELFORMAT_ARGB8888);
     if (shot == NULL) {
-        app_log("Не удалось создать поверхность для скриншота: %s", SDL_GetError());
+        hello_log("Не удалось создать поверхность для скриншота: %s", SDL_GetError());
         return 1;
     }
 
     if (SDL_RenderReadPixels(app->renderer, NULL, SDL_PIXELFORMAT_ARGB8888,
                              shot->pixels, shot->pitch) != 0) {
-        app_log("Не удалось прочитать пиксели: %s", SDL_GetError());
+        hello_log("Не удалось прочитать пиксели: %s", SDL_GetError());
         SDL_FreeSurface(shot);
         return 1;
     }
 
     int rc = SDL_SaveBMP(shot, path) == 0 ? 0 : 1;
     if (rc != 0)
-        app_log("Не удалось сохранить %s: %s", path, SDL_GetError());
+        hello_log("Не удалось сохранить %s: %s", path, SDL_GetError());
     SDL_FreeSurface(shot);
     return rc;
 }
@@ -701,24 +606,25 @@ int app_run(const AppOptions *options)
     int exit_code = 0;
     memset(&app, 0, sizeof(app));
     app.cfg = options->config;
+    app.config_path = options->config_path;
     app.screenshot = options->screenshot_path != NULL;
     app.running = true;
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
-        app_log("SDL_Init: %s", SDL_GetError());
+        hello_log("SDL_Init: %s", SDL_GetError());
         return 1;
     }
 
     if (TTF_Init() != 0) {
-        app_log("TTF_Init: %s", TTF_GetError());
+        hello_log("TTF_Init: %s", TTF_GetError());
         SDL_Quit();
         return 1;
     }
 
     char font_path[CONFIG_PATH_MAX * 2];
-    if (!find_font(&app.cfg, font_path, sizeof(font_path))) {
-        app_log("Шрифт не найден. Положи DejaVuSansMono-Bold.ttf в assets/fonts/ "
-                "или укажи путь в hello.cfg (ключ font).");
+    if (!hello_find_font(&app.cfg, font_path, sizeof(font_path))) {
+        hello_log("Шрифт не найден. Положи DejaVuSansMono-Bold.ttf в assets/fonts/ "
+                  "или укажи путь в hello.cfg (ключ font).");
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, APP_WINDOW_TITLE,
                                  "Не найден шрифт DejaVu Sans Mono Bold.\n"
                                  "Укажи путь в hello.cfg (ключ font).",
@@ -728,43 +634,17 @@ int app_run(const AppOptions *options)
         return 1;
     }
 
-    Uint32 window_flags = SDL_WINDOW_RESIZABLE;
-    window_flags |= app.screenshot ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN;
-
-    app.window = SDL_CreateWindow(APP_WINDOW_TITLE, SDL_WINDOWPOS_CENTERED,
-                                  SDL_WINDOWPOS_CENTERED, app.cfg.width,
-                                  app.cfg.height, window_flags);
-    if (app.window == NULL) {
-        app_log("SDL_CreateWindow: %s", SDL_GetError());
+    if (!hello_open_window(&app.cfg, app.screenshot, APP_WINDOW_TITLE,
+                           &app.window, &app.renderer)) {
         TTF_Quit();
         SDL_Quit();
         return 1;
     }
-
-    Uint32 renderer_flags = app.screenshot ? SDL_RENDERER_SOFTWARE : SDL_RENDERER_ACCELERATED;
-    if (!app.screenshot && app.cfg.vsync)
-        renderer_flags |= SDL_RENDERER_PRESENTVSYNC;
-
-    app.renderer = SDL_CreateRenderer(app.window, -1, renderer_flags);
-    if (app.renderer == NULL)
-        app.renderer = SDL_CreateRenderer(app.window, -1, SDL_RENDERER_SOFTWARE);
-    if (app.renderer == NULL) {
-        app_log("SDL_CreateRenderer: %s", SDL_GetError());
-        SDL_DestroyWindow(app.window);
-        TTF_Quit();
-        SDL_Quit();
-        return 1;
-    }
-
-    SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
-    if (!app.screenshot)
-        set_window_icon(app.window);
 
     app.font = TTF_OpenFont(font_path, app.cfg.font_size);
     if (app.font == NULL) {
-        app_log("TTF_OpenFont(%s): %s", font_path, TTF_GetError());
-        SDL_DestroyRenderer(app.renderer);
-        SDL_DestroyWindow(app.window);
+        hello_log("TTF_OpenFont(%s): %s", font_path, TTF_GetError());
+        hello_close_window(app.window, app.renderer);
         TTF_Quit();
         SDL_Quit();
         return 1;
@@ -780,10 +660,9 @@ int app_run(const AppOptions *options)
 
     app.chat = chat_create((unsigned)SDL_GetTicks());
     if (app.chat == NULL) {
-        app_log("Не хватило памяти на память бота.");
+        hello_log("Не хватило памяти на память бота.");
         TTF_CloseFont(app.font);
-        SDL_DestroyRenderer(app.renderer);
-        SDL_DestroyWindow(app.window);
+        hello_close_window(app.window, app.renderer);
         TTF_Quit();
         SDL_Quit();
         return 1;
@@ -853,8 +732,7 @@ cleanup:
     view_destroy(&app.view);
     chat_destroy(app.chat);
     TTF_CloseFont(app.font);
-    SDL_DestroyRenderer(app.renderer);
-    SDL_DestroyWindow(app.window);
+    hello_close_window(app.window, app.renderer);
     TTF_Quit();
     SDL_Quit();
     return exit_code;
