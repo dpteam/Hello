@@ -11,7 +11,10 @@
 #include <windows.h>
 #endif
 
-void hello_attach_console(void)
+/* Есть ли консоль: если да, ошибки пишем в stderr, а не в диалог. */
+static bool g_console_attached = false;
+
+bool hello_attach_console(void)
 {
 #ifdef _WIN32
     if (AttachConsole(ATTACH_PARENT_PROCESS)) {
@@ -19,7 +22,13 @@ void hello_attach_console(void)
         FILE *err = freopen("CONOUT$", "w", stderr);
         (void)out;
         (void)err;
+        g_console_attached = true;
+        return true;
     }
+    return false;
+#else
+    g_console_attached = true;
+    return true;
 #endif
 }
 
@@ -214,6 +223,19 @@ bool hello_open_window(const Config *cfg, bool screenshot, const char *title,
 
     *out_window = window;
     *out_renderer = renderer;
+    return true;
+}
+
+bool hello_show_error(const char *title, const char *message)
+{
+    /* В консоли или в неинтерактивной среде диалог только мешает:
+     * в CI модальное окно блокирует шаг навсегда. Пишем в stderr. */
+    if (g_console_attached) {
+        hello_log("%s", message);
+        return false;
+    }
+
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, title, message, NULL);
     return true;
 }
 

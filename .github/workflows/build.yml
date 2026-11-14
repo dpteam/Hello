@@ -70,13 +70,13 @@ jobs:
       - name: Собрать портативный дистрибутив
         run: |
           set -euo pipefail
-          mkdir -p dist
+          mkdir -p dist/assets/fonts
 
           cp README.md LICENSE dist/
           cp docs/BUILD.md dist/
-          cp assets/fonts/DejaVuSansMono-Bold.ttf dist/
-          cp assets/fonts/LICENSE dist/DejaVu-LICENSE
-          cp assets/fonts/AUTHORS dist/DejaVu-AUTHORS
+          cp assets/fonts/DejaVuSansMono-Bold.ttf dist/assets/fonts/
+          cp assets/fonts/LICENSE dist/assets/fonts/LICENSE
+          cp assets/fonts/AUTHORS dist/assets/fonts/AUTHORS
           cp build/hello.exe dist/
 
           ldd build/hello.exe | awk '/=> \/ucrt64\/bin\// {print $3}' | sort -u > dlls.txt
@@ -103,13 +103,19 @@ jobs:
 
       # Проверяем именно чистый PATH: если MSYS2 в нём есть, ошибка
       # «не хватает DLL» останется незамеченной.
+      #
+      # SDL_VIDEODRIVER=dummy — чтобы не зависеть от наличия рабочего
+      # стола на раннере. Для проверки загрузки DLL и кода рендеринга
+      # реальное окно не нужно.
       - name: Проверить дистрибутив без MSYS2 в PATH
+        timeout-minutes: 3
         shell: cmd
         run: |
           set "PATH=%SystemRoot%\System32;%SystemRoot%"
           cd dist
           hello.exe --version
           if errorlevel 1 exit /b 1
+          set SDL_VIDEODRIVER=dummy
           hello.exe --screenshot smoke.bmp --theme green
           if errorlevel 1 exit /b 1
           if not exist smoke.bmp (

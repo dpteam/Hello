@@ -13,24 +13,9 @@
 
 #include "app.h"
 #include "config.h"
+#include "platform.h"
 #include "theme.h"
 #include "version.h"
-
-#ifdef _WIN32
-#include <windows.h>
-#endif
-
-static void attach_console(void)
-{
-#ifdef _WIN32
-    if (AttachConsole(ATTACH_PARENT_PROCESS)) {
-        FILE *out = freopen("CONOUT$", "w", stdout);
-        FILE *err = freopen("CONOUT$", "w", stderr);
-        (void)out;
-        (void)err;
-    }
-#endif
-}
 
 static void print_usage(void)
 {
@@ -78,7 +63,7 @@ static void copy_arg(char *dst, size_t cap, const char *src)
 
 int main(int argc, char *argv[])
 {
-    attach_console();
+    hello_attach_console();
 
     Config cfg;
     config_defaults(&cfg);

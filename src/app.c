@@ -938,12 +938,10 @@ int app_run(const AppOptions *options)
 
     char font_path[CONFIG_PATH_MAX * 2];
     if (!hello_find_font(&app.cfg, font_path, sizeof(font_path))) {
-        hello_log("Шрифт не найден. Положи DejaVuSansMono-Bold.ttf в assets/fonts/ "
-                  "или укажи путь в hello.cfg (ключ font).");
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, APP_WINDOW_TITLE,
-                                 "Не найден шрифт DejaVu Sans Mono Bold.\n"
-                                 "Укажи путь в hello.cfg (ключ font).",
-                                 NULL);
+        hello_show_error(APP_WINDOW_TITLE,
+                         "Не найден шрифт DejaVu Sans Mono Bold.\n"
+                         "Положи его в assets/fonts/ или укажи путь "
+                         "в hello.cfg (ключ font).");
         TTF_Quit();
         SDL_Quit();
         return 1;
