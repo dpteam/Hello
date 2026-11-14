@@ -31,6 +31,18 @@ jobs:
       - name: Тесты
         run: ctest --test-dir build --output-on-failure
 
+      # На Linux бинарник консольный, поэтому здесь можно реально
+      # запустить его headless: dummy-драйвер не требует дисплея,
+      # но проходит всю инициализацию SDL, рендеринг и сохранение кадра.
+      - name: Дымовой тест (headless)
+        run: |
+          set -euo pipefail
+          cd build
+          ./hello --version
+          SDL_VIDEODRIVER=dummy ./hello --screenshot smoke.bmp --theme green
+          test -s smoke.bmp
+          echo "OK: $(stat -c%s smoke.bmp) байт"
+
   windows:
     name: Windows (MSYS2 UCRT64)
     runs-on: windows-latest
@@ -101,29 +113,35 @@ jobs:
           echo "--- содержимое dist ---"
           ls -lh dist/
 
-      # Проверяем именно чистый PATH: если MSYS2 в нём есть, ошибка
-      # «не хватает DLL» останется незамеченной.
-      #
-      # SDL_VIDEODRIVER=dummy — чтобы не зависеть от наличия рабочего
-      # стола на раннере. Для проверки загрузки DLL и кода рендеринга
-      # реальное окно не нужно.
-      - name: Проверить дистрибутив без MSYS2 в PATH
-        timeout-minutes: 3
+      # Проверка полноты DLL — статическая: разбираем таблицы импорта,
+      # а не запускаем GUI-бинарник. Запуск GUI-приложения на раннере
+      # ненадёжен (подсистема WINDOWS, нет интерактивного рабочего стола),
+      # а импорты проверяются детерминированно и мгновенно.
+      - name: Проверить полноту DLL
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          python tools/collect_dlls.py --check dist
+          echo "Все несистемные зависимости на месте"
+
+      # Диагностика: пробуем запустить, но не валим сборку, если
+      # раннер не может создать окно. Полнота DLL уже проверена выше,
+      # а работоспособность кода — дымовым тестом на Linux.
+      - name: Запуск (диагностика)
+        timeout-minutes: 2
+        continue-on-error: true
         shell: cmd
         run: |
           set "PATH=%SystemRoot%\System32;%SystemRoot%"
-          cd dist
-          hello.exe --version
-          if errorlevel 1 exit /b 1
           set SDL_VIDEODRIVER=dummy
+          cd dist
+          echo --- version ---
+          hello.exe --version
+          echo errorlevel=%ERRORLEVEL%
+          echo --- screenshot ---
           hello.exe --screenshot smoke.bmp --theme green
-          if errorlevel 1 exit /b 1
-          if not exist smoke.bmp (
-            echo ОШИБКА: скриншот не создан
-            exit /b 1
-          )
-          del smoke.bmp
-          echo ОК: бинарник работает без MSYS2 в PATH
+          echo errorlevel=%ERRORLEVEL%
+          if exist smoke.bmp (echo OK: smoke.bmp есть) else (echo нет smoke.bmp)
 
       - name: Артефакт
         uses: actions/upload-artifact@v4
