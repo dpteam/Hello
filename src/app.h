@@ -1,6 +1,8 @@
 #ifndef HELLO_APP_H
 #define HELLO_APP_H
 
+#include <stdbool.h>
+
 #include "config.h"
 
 typedef struct {
@@ -12,6 +14,9 @@ typedef struct {
 
     /* NULL — обычный запуск; иначе отрисовать демо-кадр в BMP и выйти. */
     const char *screenshot_path;
+
+    /* Проверить ввод и выйти с кодом 0/1, не открывая интерактивного окна. */
+    bool selftest;
 } AppOptions;
 
 /* 0 — успех. */

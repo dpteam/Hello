@@ -223,6 +223,14 @@ bool hello_open_window(const Config *cfg, bool screenshot, const char *title,
     if (!screenshot)
         hello_set_window_icon(window);
 
+    /* SDL3: текстовый ввод выключен по умолчанию. Без этого вызова
+     * SDL_EVENT_TEXT_INPUT не приходит вовсе — Enter и стрелки
+     * работают (это KEY_DOWN), а набрать ни одного символа нельзя.
+     * В SDL2 ввод был включён по умолчанию, при переезде это
+     * требование легко пропустить. */
+    if (!SDL_StartTextInput(window))
+        hello_log("SDL_StartTextInput: %s", SDL_GetError());
+
     *out_window = window;
     *out_renderer = renderer;
     return true;

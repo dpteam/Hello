@@ -34,6 +34,7 @@ static void print_usage(void)
     puts("  --history <файл>     файл истории ввода");
     puts("  --no-vsync           отключить вертикальную синхронизацию");
     puts("  --screenshot <файл>  отрисовать демо-кадр в BMP и выйти");
+    puts("  --selftest           проверить ввод и выйти (0 — успех)");
     puts("  -h, --help           эта справка");
     puts("  -V, --version        версия");
     puts("");
@@ -71,6 +72,7 @@ int main(int argc, char *argv[])
     const char *config_path = NULL;
     const char *screenshot = NULL;
     bool have_explicit_config = false;
+    bool selftest = false;
 
     for (int i = 1; i < argc; ++i) {
         const char *arg = argv[i];
@@ -113,6 +115,8 @@ int main(int argc, char *argv[])
             ++i;
         } else if (strcmp(arg, "--no-vsync") == 0) {
             cfg.vsync = false;
+        } else if (strcmp(arg, "--selftest") == 0) {
+            selftest = true;
         } else if (strcmp(arg, "--screenshot") == 0 && value != NULL) {
             screenshot = value;
             ++i;
@@ -148,5 +152,6 @@ int main(int argc, char *argv[])
     options.config = cfg;
     options.config_path = config_path;
     options.screenshot_path = screenshot;
+    options.selftest = selftest;
     return app_run(&options);
 }

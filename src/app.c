@@ -711,6 +711,73 @@ static void handle_event(App *app, const SDL_Event *event)
     }
 }
 
+/* Самопроверка ввода.
+ *
+ * Нужна потому, что ошибка «SDL3 не присылает TEXT_INPUT» тихая:
+ * программа запускается, Enter и стрелки работают, а буквы не
+ * набираются. Ни компилятор, ни тесты ядра такое не поймают —
+ * проблема на стыке с SDL.
+ *
+ * Проверяем три вещи: ввод включён на уровне SDL, символы попадают
+ * в буфер, backspace удаляет символ UTF-8 целиком. */
+static int run_selftest(App *app)
+{
+    int failures = 0;
+    SDL_Event event;
+
+    if (!SDL_TextInputActive(app->window)) {
+        hello_log("ПРОВАЛ: текстовый ввод не активен "
+                  "(SDL_StartTextInput не сработал)");
+        ++failures;
+    } else {
+        hello_log("ок: текстовый ввод активен");
+    }
+
+    SDL_zero(event);
+    event.type = SDL_EVENT_TEXT_INPUT;
+    /* В SDL3 поле text — указатель, а не встроенный буфер. */
+    event.text.text = "тест";
+    handle_event(app, &event);
+
+    if (strcmp(input_text(&app->input), "тест") != 0) {
+        hello_log("ПРОВАЛ: в буфере «%s», ожидалось «тест»",
+                  input_text(&app->input));
+        ++failures;
+    } else {
+        hello_log("ок: символы попадают в буфер ввода");
+    }
+
+    SDL_zero(event);
+    event.type = SDL_EVENT_KEY_DOWN;
+    event.key.key = SDLK_BACKSPACE;
+    handle_event(app, &event);
+
+    if (strcmp(input_text(&app->input), "тес") != 0) {
+        hello_log("ПРОВАЛ: после backspace «%s», ожидалось «тес»",
+                  input_text(&app->input));
+        ++failures;
+    } else {
+        hello_log("ок: backspace удаляет символ UTF-8 целиком");
+    }
+
+    /* Enter отправляет: строка уходит в диалог, буфер очищается. */
+    SDL_zero(event);
+    event.type = SDL_EVENT_KEY_DOWN;
+    event.key.key = SDLK_RETURN;
+    handle_event(app, &event);
+
+    if (input_text(&app->input)[0] != '\0') {
+        hello_log("ПРОВАЛ: после Enter буфер не очищен");
+        ++failures;
+    } else {
+        hello_log("ок: Enter отправляет и очищает ввод");
+    }
+
+    hello_log(failures == 0 ? "САМОПРОВЕРКА ПРОЙДЕНА"
+                            : "САМОПРОВЕРКА ПРОВАЛЕНА");
+    return failures == 0 ? 0 : 1;
+}
+
 static void draw_status(App *app)
 {
     char right[APP_STATUS_MAX];
@@ -923,7 +990,8 @@ int app_run(const AppOptions *options)
     memset(&app, 0, sizeof(app));
     app.cfg = options->config;
     app.config_path = options->config_path;
-    app.screenshot = options->screenshot_path != NULL;
+    /* Самопроверке окно не нужно показывать: она проверяет ввод. */
+    app.screenshot = options->screenshot_path != NULL || options->selftest;
     app.running = true;
 
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
@@ -1001,6 +1069,12 @@ int app_run(const AppOptions *options)
 
     update_size(&app);
     compute_layout(&app);
+
+    if (options->selftest) {
+        exit_code = run_selftest(&app);
+        app.running = false;
+        goto cleanup;
+    }
 
     if (app.screenshot) {
         demo_conversation(&app);

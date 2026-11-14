@@ -43,6 +43,16 @@ jobs:
           test -s smoke.bmp
           echo "OK: $(stat -c%s smoke.bmp) байт"
 
+      # Ловит регрессии ввода: SDL3 не присылает SDL_EVENT_TEXT_INPUT,
+      # пока не вызван SDL_StartTextInput. Ошибка тихая — Enter работает,
+      # а символы не набираются, и ни компилятор, ни тесты ядра её
+      # не видят.
+      - name: Самопроверка ввода
+        run: |
+          set -euo pipefail
+          cd build
+          SDL_VIDEODRIVER=dummy ./hello --selftest
+
   windows:
     name: Windows (MSYS2 UCRT64)
     runs-on: windows-latest

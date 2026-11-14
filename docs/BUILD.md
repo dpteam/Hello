@@ -30,6 +30,31 @@ Python нужен только для утилит: генератор икон�
 
 ## Windows: MSYS2 (UCRT64) — рекомендуемый путь
 
+### Самый простой способ
+
+```cmd
+build.cmd
+```
+
+Скрипт сам находит MSYS2, настраивает окружение и собирает. Полезные
+режимы:
+
+```cmd
+build.cmd          rem Release-сборка
+build.cmd debug    rem Debug-сборка
+build.cmd test     rem собрать и прогнать тесты + самопроверку ввода
+build.cmd clean    rem удалить build/
+```
+
+Если MSYS2 лежит в нестандартном месте — задайте префикс:
+
+```cmd
+set MSYSTEM_PREFIX=C:\path\to\msys64\ucrt64
+build.cmd
+```
+
+### Вручную
+
 ```bash
 pacman -S --needed \
     mingw-w64-ucrt-x86_64-gcc \
@@ -55,6 +80,37 @@ cmake --build build
 ```bash
 ./build/hello.exe --font assets/fonts/DejaVuSansMono-Bold.ttf
 ```
+
+### Ловушка: два тулчейна на одной машине
+
+Если в PowerShell стоит свой CMake и свой MinGW (например, из scoop),
+то `cmake -S . -B build` возьмёт **их**, а не MSYS2. SDL3 в таком
+тулчейне нет, и вы получите:
+
+```
+Could not find a package configuration file provided by "SDL3"
+```
+
+Проверить, что именно нашлось:
+
+```
+-- Check for working C compiler: C:/Users/.../scoop/apps/mingw/current/bin/cc.exe
+```
+
+Если путь ведёт не в `msys2/.../ucrt64/bin` — это чужой тулчейн.
+
+Решения:
+
+1. `build.cmd` — выставляет PATH на MSYS2 сам.
+2. Явно указать префикс:
+   ```powershell
+   cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=C:/msys64/ucrt64
+   ```
+3. Запускать `cmake` из шелла MSYS2 UCRT64.
+
+CMakeLists сам подсказывает это при ошибке и дополнительно пробует
+найти MSYS2 в типичных местах (`%MSYSTEM_PREFIX%`, `%SCOOP%\apps\msys2`,
+`C:/msys64`).
 
 ### Почему MSYS2, а не MSVC
 
@@ -339,6 +395,31 @@ PY
 Полезно и для проверки, что рендеринг не сломался, без ручного запуска.
 
 ## Отладка
+
+### Не набираются символы, а Enter работает
+
+Запустите самопроверку:
+
+```bash
+./build/hello --selftest
+```
+
+```
+ок: текстовый ввод активен
+ок: символы попадают в буфер ввода
+ок: backspace удаляет символ UTF-8 целиком
+ок: Enter отправляет и очищает ввод
+САМОПРОВЕРКА ПРОЙДЕНА
+```
+
+Если первая строка — `ПРОВАЛ: текстовый ввод не активен`, значит
+не вызван `SDL_StartTextInput`.
+
+Это специфика SDL3: **текстовый ввод выключен по умолчанию**, и
+`SDL_EVENT_TEXT_INPUT` не приходит, пока его не включат. При этом
+`SDL_EVENT_KEY_DOWN` приходит всегда, поэтому Enter, стрелки и
+Backspace работают, а буквы — нет. В SDL2 ввод был включён по
+умолчанию, и при переезде это требование легко пропустить.
 
 ### Окно не появляется
 

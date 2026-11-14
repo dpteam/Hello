@@ -32,6 +32,21 @@
 
 ### Windows (MSYS2 / UCRT64)
 
+Самое простое — из PowerShell или CMD:
+
+```cmd
+build.cmd
+```
+
+Скрипт сам находит MSYS2, ставит окружение и собирает. Проверить всё
+сразу:
+
+```cmd
+build.cmd test
+```
+
+Вручную, из шелла MSYS2 UCRT64:
+
 ```bash
 pacman -S --needed mingw-w64-ucrt-x86_64-gcc \
     mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja \
@@ -41,6 +56,13 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ./build/hello.exe
 ```
+
+> Если в PowerShell стоит свой CMake и свой MinGW (например, из scoop),
+> `cmake` возьмёт их, а SDL3 там нет — и вы получите
+> «Could not find a package configuration file provided by SDL3».
+> Используйте `build.cmd` или укажите
+> `-DCMAKE_PREFIX_PATH=C:/msys64/ucrt64`. Подробности в
+> [`docs/BUILD.md`](docs/BUILD.md#ловушка-два-тулчейна-на-одной-машине).
 
 ### Linux
 
@@ -198,6 +220,7 @@ history = hello.history
 --history <файл>     файл истории ввода
 --no-vsync           отключить вертикальную синхронизацию
 --screenshot <файл>  отрисовать демо-кадр в BMP и выйти
+--selftest           проверить ввод и выйти (0 — успех)
 -h, --help           справка
 -V, --version        версия
 ```
