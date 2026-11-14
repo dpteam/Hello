@@ -114,34 +114,20 @@ jobs:
           ls -lh dist/
 
       # Проверка полноты DLL — статическая: разбираем таблицы импорта,
-      # а не запускаем GUI-бинарник. Запуск GUI-приложения на раннере
-      # ненадёжен (подсистема WINDOWS, нет интерактивного рабочего стола),
-      # а импорты проверяются детерминированно и мгновенно.
+      # а не запускаем GUI-бинарник.
+      #
+      # Почему не запускаем: hello.exe — GUI-подсистема, и на раннере
+      # без интерактивного рабочего стола процесс не завершается
+      # (проверено: --version висит до таймаута, локально тот же
+      # бинарник с тем же чистым PATH отвечает мгновенно).
+      # Работоспособность кода проверяется дымовым тестом на Linux,
+      # а полнота зависимостей — здесь, детерминированно.
       - name: Проверить полноту DLL
         timeout-minutes: 2
         run: |
           set -euo pipefail
           python tools/collect_dlls.py --check dist
           echo "Все несистемные зависимости на месте"
-
-      # Диагностика: пробуем запустить, но не валим сборку, если
-      # раннер не может создать окно. Полнота DLL уже проверена выше,
-      # а работоспособность кода — дымовым тестом на Linux.
-      - name: Запуск (диагностика)
-        timeout-minutes: 2
-        continue-on-error: true
-        shell: cmd
-        run: |
-          set "PATH=%SystemRoot%\System32;%SystemRoot%"
-          set SDL_VIDEODRIVER=dummy
-          cd dist
-          echo --- version ---
-          hello.exe --version
-          echo errorlevel=%ERRORLEVEL%
-          echo --- screenshot ---
-          hello.exe --screenshot smoke.bmp --theme green
-          echo errorlevel=%ERRORLEVEL%
-          if exist smoke.bmp (echo OK: smoke.bmp есть) else (echo нет smoke.bmp)
 
       - name: Артефакт
         uses: actions/upload-artifact@v4
