@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import struct
 import sys
@@ -99,15 +100,49 @@ def is_system_dll(name: str) -> bool:
     return any(low.startswith(p) for p in SYSTEM_PREFIXES)
 
 
+# Имя DLL внутри бинарника: строка вида "SDL3.dll" в таблице строк.
+DLL_NAME_RE = re.compile(rb"[A-Za-z0-9_.+-]{1,60}\.dll", re.IGNORECASE)
+
+# Библиотеки-прослойки: сами по себе почти пустые, всю работу отдают
+# другой библиотеке, загружая её через LoadLibrary. В таблице импорта
+# такой зависимости нет, поэтому ldd её не показывает, и проверка
+# только по импортам пропускает нужный файл.
+#
+# Живой случай: MSYS2 отдаёт SDL2 как sdl2-compat. Он транслирует
+# вызовы SDL2 в SDL3 и без SDL3.dll не работает вовсе — приложение
+# падает с «Failed loading SDL3 library».
+SHIMS: tuple[tuple[bytes, str], ...] = (
+    (b"sdl2-compat", "SDL3.dll"),
+)
+
+
+def shim_requirements(path: Path) -> list[str]:
+    """Библиотеки, которые нужны этому файлу как прослойке."""
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return []
+
+    needed = []
+    for marker, dll in SHIMS:
+        if marker in data and dll not in needed:
+            needed.append(dll)
+    return needed
+
+
 def search_dirs(extra: list[Path]) -> list[Path]:
+    """Каталоги, откуда берём библиотеки для копирования.
+
+    System32 здесь намеренно нет: системные DLL копировать не нужно,
+    они есть в любой Windows. Если добавить, сканер начнёт тащить
+    сотни системных библиотек, которые упоминаются в строках.
+    """
     dirs = list(extra)
     for var in ("MSYSTEM_PREFIX", "MINGW_PREFIX"):
         prefix = os.environ.get(var)
         if prefix:
             dirs.append(Path(prefix) / "bin")
 
-    system_root = os.environ.get("SystemRoot", r"C:\Windows")
-    dirs.append(Path(system_root) / "System32")
     return [d for d in dirs if d.is_dir()]
 
 
@@ -129,7 +164,15 @@ def collect(exe: Path, out_dir: Path, verbose: bool = True) -> int:
 
     while queue:
         current = queue.pop()
-        for dll in pe_imports(current):
+
+        # 1. Статические зависимости — из таблицы импорта.
+        candidates = [(name, "импорт") for name in pe_imports(current)]
+
+        # 2. Прослойки: их библиотеки грузятся через LoadLibrary,
+        #    в таблице импорта их нет.
+        candidates += [(name, "прослойка") for name in shim_requirements(current)]
+
+        for dll, origin in candidates:
             key = dll.lower()
             if key in seen:
                 continue
@@ -151,7 +194,8 @@ def collect(exe: Path, out_dir: Path, verbose: bool = True) -> int:
                     break
 
             if source is None:
-                print(f"ОШИБКА: не найдена {dll} (нужна для {current.name})")
+                print(f"ОШИБКА: не найдена {dll} (нужна для {current.name}, "
+                      f"{origin})")
                 problems += 1
                 continue
 
@@ -159,7 +203,8 @@ def collect(exe: Path, out_dir: Path, verbose: bool = True) -> int:
             copied.append(dll)
             queue.append(local)
             if verbose:
-                print(f"  + {dll}")
+                mark = "" if origin == "импорт" else f"  ({origin})"
+                print(f"  + {dll}{mark}")
 
     if verbose:
         print(f"\nскопировано DLL: {len(copied)}")
@@ -167,23 +212,29 @@ def collect(exe: Path, out_dir: Path, verbose: bool = True) -> int:
 
 
 def check(out_dir: Path) -> int:
-    """Проверяет, что все несистемные зависимости лежат рядом."""
+    """Проверяет, что все нужные DLL лежат рядом с бинарниками.
+
+    Смотрит таблицу импорта и требования прослоек. Именно вторая
+    проверка ловит sdl2-compat без SDL3.dll — случай, который
+    не виден ни ldd, ни разбору импортов.
+    """
     problems = 0
-    for exe in sorted(out_dir.glob("*.exe")):
-        for dll in pe_imports(exe):
+    binaries = sorted(out_dir.glob("*.exe")) + sorted(out_dir.glob("*.dll"))
+
+    for binary in binaries:
+        for dll in pe_imports(binary):
             if is_system_dll(dll):
                 continue
             if not (out_dir / dll).exists():
-                print(f"ОТСУТСТВУЕТ: {dll} (нужна для {exe.name})")
+                print(f"ОТСУТСТВУЕТ: {dll} (импортируется из {binary.name})")
                 problems += 1
 
-    # Проверяем и сами DLL: у них тоже есть зависимости.
-    for lib in sorted(out_dir.glob("*.dll")):
-        for dll in pe_imports(lib):
+        for dll in shim_requirements(binary):
             if is_system_dll(dll):
                 continue
             if not (out_dir / dll).exists():
-                print(f"ОТСУТСТВУЕТ: {dll} (нужна для {lib.name})")
+                print(f"ОТСУТСТВУЕТ: {dll} "
+                      f"(нужна прослойке {binary.name} в рантайме)")
                 problems += 1
 
     return problems

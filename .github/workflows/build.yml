@@ -76,12 +76,16 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
       # Без этих DLL hello.exe запустится только там, где стоит MSYS2.
-      # Набор не хардкодится: ldd показывает полный транзитивный список,
-      # а всё, что резолвится в /ucrt64/bin, — это наши зависимости.
-      # Системные DLL из C:/Windows копировать не нужно.
+      #
+      # tools/collect_dlls.py обходит зависимости рекурсивно и знает
+      # про библиотеки-прослойки. Это важно: MSYS2 отдаёт SDL2 как
+      # sdl2-compat, который грузит SDL3.dll через LoadLibrary.
+      # Ни ldd, ни разбор таблицы импорта такого не видят, и без
+      # SDL3.dll приложение падает с «Failed loading SDL3 library».
       - name: Собрать портативный дистрибутив
         run: |
           set -euo pipefail
+          export MSYSTEM_PREFIX=/ucrt64
           mkdir -p dist/assets/fonts
 
           cp README.md LICENSE dist/
@@ -89,45 +93,66 @@ jobs:
           cp assets/fonts/DejaVuSansMono-Bold.ttf dist/assets/fonts/
           cp assets/fonts/LICENSE dist/assets/fonts/LICENSE
           cp assets/fonts/AUTHORS dist/assets/fonts/AUTHORS
-          cp build/hello.exe dist/
 
-          ldd build/hello.exe | awk '/=> \/ucrt64\/bin\// {print $3}' | sort -u > dlls.txt
-          if [ ! -s dlls.txt ]; then
-            echo "ОШИБКА: ldd не нашёл ни одной зависимости"
-            exit 1
-          fi
-
-          while read -r dll; do
-            cp "$dll" dist/
-          done < dlls.txt
-
-          count=$(wc -l < dlls.txt)
-          echo "Скопировано DLL: $count"
-
-          if ldd build/hello.exe | grep -qi "not found"; then
-            echo "ОШИБКА: есть неразрешённые зависимости"
-            ldd build/hello.exe | grep -i "not found"
-            exit 1
-          fi
+          python tools/collect_dlls.py build/hello.exe dist
 
           echo "--- содержимое dist ---"
           ls -lh dist/
 
-      # Проверка полноты DLL — статическая: разбираем таблицы импорта,
-      # а не запускаем GUI-бинарник.
+      # Проверка полноты DLL — статическая: разбираем таблицы импорта
+      # и требования прослоек, а не запускаем GUI-бинарник.
       #
       # Почему не запускаем: hello.exe — GUI-подсистема, и на раннере
       # без интерактивного рабочего стола процесс не завершается
       # (проверено: --version висит до таймаута, локально тот же
       # бинарник с тем же чистым PATH отвечает мгновенно).
-      # Работоспособность кода проверяется дымовым тестом на Linux,
-      # а полнота зависимостей — здесь, детерминированно.
+      # Работоспособность кода проверяется дымовым тестом на Linux.
       - name: Проверить полноту DLL
         timeout-minutes: 2
         run: |
           set -euo pipefail
+          export MSYSTEM_PREFIX=/ucrt64
           python tools/collect_dlls.py --check dist
           echo "Все несистемные зависимости на месте"
+
+      # Настоящий запуск, а не только статическая проверка.
+      #
+      # hello.exe — GUI-подсистема, поэтому ждать её завершения нельзя:
+      # на раннере без рабочего стола процесс может не выйти сам.
+      # Запускаем с таймаутом и судим по результату: --screenshot
+      # пишет BMP до выхода. Если какой-то DLL не хватает, файла
+      # не будет — ровно так пропускался SDL3.dll для sdl2-compat.
+      - name: Дымовой тест (запуск с таймаутом)
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          $env:SDL_VIDEODRIVER = 'dummy'
+          Set-Location dist
+          Remove-Item smoke.bmp -ErrorAction SilentlyContinue
+
+          $p = Start-Process -FilePath '.\hello.exe' `
+                 -ArgumentList '--screenshot','smoke.bmp','--theme','green' `
+                 -PassThru -NoNewWindow
+
+          if (-not $p.WaitForExit(60000)) {
+            Write-Host 'процесс не завершился за минуту — убиваем'
+            $p.Kill()
+          }
+          Write-Host ("exit code: " + $p.ExitCode)
+
+          if (-not (Test-Path smoke.bmp)) {
+            Write-Error 'ОШИБКА: smoke.bmp не создан — вероятно, не хватает DLL'
+            exit 1
+          }
+          $size = (Get-Item smoke.bmp).Length
+          Write-Host ("OK: smoke.bmp " + $size + " байт")
+          if ($size -lt 1000) {
+            Write-Error 'ОШИБКА: файл подозрительно мал'
+            exit 1
+          }
+          Remove-Item smoke.bmp
 
       - name: Артефакт
         uses: actions/upload-artifact@v4
