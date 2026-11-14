@@ -8,8 +8,8 @@
 #ifndef HELLO_VIEW_H
 #define HELLO_VIEW_H
 
-#include <SDL.h>
-#include <SDL_ttf.h>
+#include <SDL3/SDL.h>
+#include <SDL3_ttf/SDL_ttf.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>

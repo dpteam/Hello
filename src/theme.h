@@ -8,7 +8,7 @@
 #ifndef HELLO_THEME_H
 #define HELLO_THEME_H
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include <stdbool.h>
 
 #define THEME_ROLE_MAX 24

@@ -4,8 +4,8 @@
 #ifndef HELLO_RENDER_H
 #define HELLO_RENDER_H
 
-#include <SDL.h>
-#include <SDL_ttf.h>
+#include <SDL3/SDL.h>
+#include <SDL3_ttf/SDL_ttf.h>
 #include <stdbool.h>
 
 /* NULL при ошибке (поверхность/текстура/шрифт). */

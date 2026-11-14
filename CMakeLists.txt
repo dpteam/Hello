@@ -16,8 +16,8 @@ endif()
 option(HELLO_BUILD_TESTS "Собирать юнит-тесты" ON)
 option(HELLO_WERROR "Считать предупреждения ошибками" OFF)
 
-find_package(SDL2 CONFIG REQUIRED)
-find_package(SDL2_ttf CONFIG REQUIRED)
+find_package(SDL3 CONFIG REQUIRED)
+find_package(SDL3_ttf CONFIG REQUIRED)
 
 # --- Общая библиотека логики (без SDL) --------------------------------
 add_library(hello_core STATIC
@@ -69,14 +69,14 @@ target_include_directories(hello PRIVATE
     src
     ${CMAKE_CURRENT_BINARY_DIR}/generated)
 
-if(TARGET SDL2::SDL2main)
-    target_link_libraries(hello PRIVATE SDL2::SDL2main)
+if(TARGET SDL3::SDL3main)
+    target_link_libraries(hello PRIVATE SDL3::SDL3main)
 endif()
 
 target_link_libraries(hello PRIVATE
     hello_core
-    SDL2::SDL2
-    SDL2_ttf::SDL2_ttf)
+    SDL3::SDL3
+    SDL3_ttf::SDL3_ttf)
 
 target_compile_features(hello PRIVATE c_std_11)
 
@@ -130,7 +130,7 @@ if(HELLO_BUILD_TESTS)
         tests/test_theme.c
         src/theme.c)
 
-    target_link_libraries(hello_tests PRIVATE hello_core SDL2::SDL2)
+    target_link_libraries(hello_tests PRIVATE hello_core SDL3::SDL3)
     target_include_directories(hello_tests PRIVATE src tests)
     target_compile_features(hello_tests PRIVATE c_std_11)
 

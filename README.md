@@ -1,7 +1,7 @@
 # Codename Hello
 
 > Консольный собеседник с памятью фраз и цепью Маркова.
-> Начат в 2012 году как эксперимент на SDL 1.2, перезапущен в 2026-м на SDL2.
+> Начат в 2012 году как эксперимент на SDL 1.2, перезапущен в 2026-м на SDL3.
 
 <p align="center">
   <img src="assets/icon.png" width="96" alt="Иконка Codename Hello">
@@ -25,7 +25,7 @@
 Изначально это был консольный цикл на C, который на каждую введённую строку
 переставлял массив фраз по самодельному коэффициенту совпадения. В 2013-м
 появилось окно на SDL 1.2 с моноширинным шрифтом DejaVu Sans Mono Bold.
-В 2026-м проект переехал на SDL2, получил нормальную архитектуру, тесты
+В 2026-м проект переехал на SDL3, получил нормальную архитектуру, тесты
 и математику вместо самодельных эвристик.
 
 ## Быстрый старт
@@ -35,7 +35,7 @@
 ```bash
 pacman -S --needed mingw-w64-ucrt-x86_64-gcc \
     mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja \
-    mingw-w64-ucrt-x86_64-SDL2 mingw-w64-ucrt-x86_64-SDL2_ttf
+    mingw-w64-ucrt-x86_64-sdl3 mingw-w64-ucrt-x86_64-sdl3-ttf
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
@@ -45,7 +45,7 @@ cmake --build build
 ### Linux
 
 ```bash
-sudo apt install build-essential cmake libsdl2-dev libsdl2-ttf-dev
+sudo apt install build-essential cmake libsdl3-dev libsdl3-ttf-dev
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ./build/hello
@@ -54,7 +54,7 @@ cmake --build build
 ### macOS (Homebrew)
 
 ```bash
-brew install cmake sdl2 sdl2_ttf
+brew install cmake sdl3 sdl3_ttf
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ./build/hello
@@ -206,7 +206,7 @@ history = hello.history
 
 ```
 Hello/
-├── src/                      основная линия (SDL2)
+├── src/                      основная линия (SDL3)
 │   ├── main.c                аргументы, запуск
 │   ├── app.c                 окно, цикл, команды, ввод
 │   ├── platform.c/.h         окно, шрифт, иконка, пути (общее)
@@ -274,5 +274,5 @@ MIT. Обе прошлые версии сохранены в
 ---
 
 <p align="center">
-  <sub>2012–2013: SDL 1.2 · 2026: SDL2, CMake, 522 теста</sub>
+  <sub>2012–2013: SDL 1.2 · 2026: SDL3, CMake, 713 тестов</sub>
 </p>

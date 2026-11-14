@@ -49,14 +49,14 @@ const char *hello_base_path(void)
 
     if (!resolved) {
         resolved = true;
-        char *dir = SDL_GetBasePath();
+        /* В SDL3 путь принадлежит SDL и освобождается сам. */
+        const char *dir = SDL_GetBasePath();
         if (dir != NULL) {
             size_t len = strlen(dir);
             if (len >= sizeof(path))
                 len = sizeof(path) - 1;
             memcpy(path, dir, len);
             path[len] = '\0';
-            SDL_free(dir);
         } else {
             path[0] = '\0';
         }
@@ -168,12 +168,13 @@ void hello_set_window_icon(SDL_Window *window)
     if (window == NULL)
         return;
 
-    SDL_Surface *icon = SDL_CreateRGBSurfaceWithFormatFrom(
-        (void *)kIconRgba64, 64, 64, 32, 64 * 4, SDL_PIXELFORMAT_RGBA32);
+    /* В SDL3 порядок аргументов другой: размеры, формат, пиксели, шаг. */
+    SDL_Surface *icon = SDL_CreateSurfaceFrom(
+        64, 64, SDL_PIXELFORMAT_RGBA32, (void *)kIconRgba64, 64 * 4);
     if (icon == NULL)
         return;
     SDL_SetWindowIcon(window, icon);
-    SDL_FreeSurface(icon);
+    SDL_DestroySurface(icon);
 }
 
 bool hello_open_window(const Config *cfg, bool screenshot, const char *title,
@@ -186,35 +187,36 @@ bool hello_open_window(const Config *cfg, bool screenshot, const char *title,
     *out_renderer = NULL;
 
     Uint32 flags = SDL_WINDOW_RESIZABLE;
-    flags |= screenshot ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN;
+    if (screenshot)
+        flags |= SDL_WINDOW_HIDDEN;
 
-    int x = cfg->window_x;
-    int y = cfg->window_y;
-    if (x == CONFIG_WINDOW_POS_ANY)
-        x = SDL_WINDOWPOS_CENTERED;
-    if (y == CONFIG_WINDOW_POS_ANY)
-        y = SDL_WINDOWPOS_CENTERED;
-
-    SDL_Window *window = SDL_CreateWindow(title, x, y, cfg->width, cfg->height,
-                                          flags);
+    /* SDL3 убрал позицию из SDL_CreateWindow — окно ставится отдельно. */
+    SDL_Window *window =
+        SDL_CreateWindow(title, cfg->width, cfg->height, flags);
     if (window == NULL) {
         hello_log("SDL_CreateWindow: %s", SDL_GetError());
         return false;
     }
 
-    Uint32 renderer_flags = screenshot ? SDL_RENDERER_SOFTWARE
-                                       : SDL_RENDERER_ACCELERATED;
-    if (!screenshot && cfg->vsync)
-        renderer_flags |= SDL_RENDERER_PRESENTVSYNC;
+    if (cfg->window_x != CONFIG_WINDOW_POS_ANY ||
+        cfg->window_y != CONFIG_WINDOW_POS_ANY) {
+        SDL_SetWindowPosition(window, cfg->window_x, cfg->window_y);
+    }
 
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, renderer_flags);
+    /* SDL3 убрал индекс драйвера и флаги из SDL_CreateRenderer.
+     * Программный рендерер выбирается по имени. */
+    SDL_Renderer *renderer =
+        SDL_CreateRenderer(window, screenshot ? "software" : NULL);
     if (renderer == NULL)
-        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+        renderer = SDL_CreateRenderer(window, "software");
     if (renderer == NULL) {
         hello_log("SDL_CreateRenderer: %s", SDL_GetError());
         SDL_DestroyWindow(window);
         return false;
     }
+
+    /* Вертикальная синхронизация — отдельный вызов, а не флаг. */
+    SDL_SetRenderVSync(renderer, (!screenshot && cfg->vsync) ? 1 : 0);
 
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
 

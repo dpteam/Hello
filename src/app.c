@@ -1,7 +1,7 @@
 #include "app.h"
 
-#include <SDL.h>
-#include <SDL_ttf.h>
+#include <SDL3/SDL.h>
+#include <SDL3_ttf/SDL_ttf.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -112,7 +112,7 @@ static void addf(App *app, ViewKind kind, const char *fmt, ...)
 static void update_size(App *app)
 {
     int w = 0, h = 0;
-    if (SDL_GetRendererOutputSize(app->renderer, &w, &h) != 0 || w <= 0 || h <= 0)
+    if (!SDL_GetRenderOutputSize(app->renderer, &w, &h) || w <= 0 || h <= 0)
         SDL_GetWindowSize(app->window, &w, &h);
     app->width = w;
     app->height = h;
@@ -120,7 +120,7 @@ static void update_size(App *app)
 
 static void compute_layout(App *app)
 {
-    app->line_h = TTF_FontLineSkip(app->font);
+    app->line_h = TTF_GetFontLineSkip(app->font);
 
     int status_h = app->line_h;
     int input_h = app->line_h;
@@ -239,7 +239,7 @@ static void schedule_reply(App *app, const char *text)
     uint32_t delay = APP_REPLY_BASE_MS + (uint32_t)chars * APP_REPLY_PER_CHAR_MS;
     if (delay > APP_REPLY_MAX_MS)
         delay = APP_REPLY_MAX_MS;
-    app->pending_at = SDL_GetTicks() + delay;
+    app->pending_at = (uint32_t)SDL_GetTicks() + delay;
 }
 
 static void deliver_reply(App *app)
@@ -279,7 +279,7 @@ static void run_command(App *app, const char *line)
         view_clear(&app->view);
         add_line(app, "Экран очищен. Память на месте.", VIEW_SYSTEM);
     } else if (strcmp(command, "stats") == 0) {
-        uint32_t uptime = (SDL_GetTicks() - app->start_ticks) / 1000u;
+        uint32_t uptime = ((uint32_t)SDL_GetTicks() - app->start_ticks) / 1000u;
         addf(app, VIEW_SYSTEM,
              "Фраз в памяти: %zu (выучено: %zu) · сообщений: %llu · "
              "время: %02u:%02u · FPS: %d",
@@ -374,7 +374,7 @@ static void run_command(App *app, const char *line)
         addf(app, VIEW_HINT, "Сообщений за всё время: %u",
              app->pet.messages);
     } else if (strcmp(command, "feed") == 0) {
-        pet_feed(&app->pet, SDL_GetTicks());
+        pet_feed(&app->pet, (uint32_t)SDL_GetTicks());
         add_line(app, "Бот поел. Доволен.", VIEW_SYSTEM);
     } else if (strcmp(command, "export") == 0) {
         const char *path = (*args != '\0') ? args : app->export_path;
@@ -464,7 +464,7 @@ static void submit(App *app)
         run_command(app, text + 1);
     } else {
         chat_learn(app->chat, text);
-        pet_on_message(&app->pet, SDL_GetTicks());
+        pet_on_message(&app->pet, (uint32_t)SDL_GetTicks());
         schedule_reply(app, text);
     }
 
@@ -491,8 +491,9 @@ static void paste_clipboard(App *app)
 static void toggle_fullscreen(App *app)
 {
     app->fullscreen = !app->fullscreen;
-    if (SDL_SetWindowFullscreen(app->window,
-                                app->fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0) != 0) {
+    if (!SDL_SetWindowFullscreen(
+            app->window,
+            app->fullscreen ? SDL_WINDOW_FULLSCREEN : 0)) {
         app->fullscreen = !app->fullscreen;
         return;
     }
@@ -502,10 +503,11 @@ static void toggle_fullscreen(App *app)
 
 static void handle_key(App *app, const SDL_KeyboardEvent *event)
 {
-    bool ctrl = (event->keysym.mod & KMOD_CTRL) != 0;
-    bool shift = (event->keysym.mod & KMOD_SHIFT) != 0;
+    /* В SDL3 модификаторы и код клавиши лежат прямо в событии. */
+    bool ctrl = (event->mod & SDL_KMOD_CTRL) != 0;
+    bool shift = (event->mod & SDL_KMOD_SHIFT) != 0;
 
-    switch (event->keysym.sym) {
+    switch (event->key) {
     case SDLK_ESCAPE:
         app->running = false;
         break;
@@ -567,14 +569,14 @@ static void handle_key(App *app, const SDL_KeyboardEvent *event)
         break;
     default:
         if (ctrl) {
-            switch (event->keysym.sym) {
-            case SDLK_v:
+            switch (event->key) {
+            case SDLK_V:
                 paste_clipboard(app);
                 break;
-            case SDLK_c:
+            case SDLK_C:
                 copy_selection(app);
                 break;
-            case SDLK_a:
+            case SDLK_A:
                 /* Выделить всё видимое. */
                 if (app->view.row_count > 0) {
                     app->sel_active = true;
@@ -582,16 +584,16 @@ static void handle_key(App *app, const SDL_KeyboardEvent *event)
                     app->sel_end = (int)app->view.row_count - 1;
                 }
                 break;
-            case SDLK_l:
+            case SDLK_L:
                 view_clear(&app->view);
                 break;
-            case SDLK_s:
+            case SDLK_S:
                 if (chat_save(app->chat, app->cfg.memory_path))
                     addf(app, VIEW_SYSTEM, "Память сохранена: %s", app->cfg.memory_path);
                 else
                     addf(app, VIEW_ERROR, "Не удалось сохранить память.");
                 break;
-            case SDLK_q:
+            case SDLK_Q:
                 app->running = false;
                 break;
             default:
@@ -634,11 +636,11 @@ static void handle_mouse(App *app, const SDL_Event *event)
     int area_y = text_area_y(app);
 
     switch (event->type) {
-    case SDL_MOUSEBUTTONDOWN:
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
         if (event->button.button != SDL_BUTTON_LEFT)
             break;
         {
-            int row = view_row_at(&app->view, event->button.y, area_y,
+            int row = view_row_at(&app->view, (int)event->button.y, area_y,
                                   app->line_h, app->visible_rows);
             if (row < 0)
                 break;
@@ -648,25 +650,25 @@ static void handle_mouse(App *app, const SDL_Event *event)
         }
         break;
 
-    case SDL_MOUSEMOTION:
+    case SDL_EVENT_MOUSE_MOTION:
         if (!app->sel_active)
             break;
         if ((event->motion.state & SDL_BUTTON_LMASK) == 0)
             break;
         {
-            int row = view_row_at(&app->view, event->motion.y, area_y,
+            int row = view_row_at(&app->view, (int)event->motion.y, area_y,
                                   app->line_h, app->visible_rows);
             if (row >= 0)
                 app->sel_end = row;
         }
         break;
 
-    case SDL_MOUSEBUTTONUP:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
         if (event->button.button != SDL_BUTTON_LEFT)
             break;
         /* Одиночный клик без протяжки — снимаем выделение. */
         if (app->sel_anchor == app->sel_end) {
-            int row = view_row_at(&app->view, event->button.y, area_y,
+            int row = view_row_at(&app->view, (int)event->button.y, area_y,
                                   app->line_h, app->visible_rows);
             if (row >= 0 && row == app->sel_anchor)
                 app->sel_active = false;
@@ -677,33 +679,32 @@ static void handle_mouse(App *app, const SDL_Event *event)
         break;
     }
 }
-
 static void handle_event(App *app, const SDL_Event *event)
 {
     switch (event->type) {
-    case SDL_QUIT:
+    case SDL_EVENT_QUIT:
         app->running = false;
         break;
-    case SDL_TEXTINPUT:
+    case SDL_EVENT_TEXT_INPUT:
         input_insert(&app->input, event->text.text);
         break;
-    case SDL_KEYDOWN:
+    case SDL_EVENT_KEY_DOWN:
         handle_key(app, &event->key);
         break;
-    case SDL_MOUSEWHEEL:
-        view_scroll(&app->view, event->wheel.y * APP_SCROLL_STEP, app->visible_rows);
+    case SDL_EVENT_MOUSE_WHEEL:
+        /* В SDL3 прокрутка дробная — переводим в целые строки. */
+        view_scroll(&app->view, (int)event->wheel.y * APP_SCROLL_STEP,
+                    app->visible_rows);
         break;
-    case SDL_MOUSEBUTTONDOWN:
-    case SDL_MOUSEBUTTONUP:
-    case SDL_MOUSEMOTION:
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+    case SDL_EVENT_MOUSE_MOTION:
         handle_mouse(app, event);
         break;
-    case SDL_WINDOWEVENT:
-        if (event->window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
-            event->window.event == SDL_WINDOWEVENT_RESIZED) {
-            update_size(app);
-            relayout(app);
-        }
+    case SDL_EVENT_WINDOW_RESIZED:
+    case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+        update_size(app);
+        relayout(app);
         break;
     default:
         break;
@@ -741,11 +742,22 @@ static void draw_status(App *app)
                        app->width - APP_PADDING - w, status_y);
 }
 
+/* SDL_Color (0..255) → SDL_FColor (0..1) с заданной прозрачностью.
+ * В SDL3 вершины используют float-цвета. */
+static SDL_FColor to_fcolor(SDL_Color c, float alpha)
+{
+    SDL_FColor out;
+    out.r = (float)c.r / 255.0f;
+    out.g = (float)c.g / 255.0f;
+    out.b = (float)c.b / 255.0f;
+    out.a = alpha;
+    return out;
+}
+
 /* Треугольник из макетов 2015 года. Рисуется только в свободном месте
  * над текстом; если текста много — не рисуется вовсе. */
 static void draw_logo(App *app, int area_y)
 {
-#if SDL_VERSION_ATLEAST(2, 0, 18)
     if (app->visible_rows <= 0 || app->line_h <= 0)
         return;
 
@@ -770,31 +782,24 @@ static void draw_logo(App *app, int area_y)
 
     verts[0].position.x = cx;
     verts[0].position.y = cy - size * 0.5f;
-    verts[0].color = app->theme->logo_a;
-    verts[0].color.a = 55;
+    verts[0].color = to_fcolor(app->theme->logo_a, 0.22f);
     verts[0].tex_coord.x = 0.0f;
     verts[0].tex_coord.y = 0.0f;
 
     verts[1].position.x = cx - size * 0.46f;
     verts[1].position.y = cy + size * 0.5f;
-    verts[1].color = app->theme->logo_b;
-    verts[1].color.a = 55;
+    verts[1].color = to_fcolor(app->theme->logo_b, 0.22f);
     verts[1].tex_coord.x = 0.0f;
     verts[1].tex_coord.y = 0.0f;
 
     verts[2].position.x = cx + size * 0.46f;
     verts[2].position.y = cy + size * 0.5f;
-    verts[2].color = app->theme->logo_c;
-    verts[2].color.a = 55;
+    verts[2].color = to_fcolor(app->theme->logo_c, 0.22f);
     verts[2].tex_coord.x = 0.0f;
     verts[2].tex_coord.y = 0.0f;
 
     const int indices[3] = {0, 1, 2};
     SDL_RenderGeometry(app->renderer, NULL, verts, 3, indices, 3);
-#else
-    (void)app;
-    (void)area_y;
-#endif
 }
 
 static void draw_selection(App *app, int area_y)
@@ -815,8 +820,10 @@ static void draw_selection(App *app, int area_y)
         if (slot < 0 || slot >= app->visible_rows)
             continue;
 
-        SDL_Rect rect = {APP_PADDING, area_y + slot * app->line_h,
-                         app->width - 2 * APP_PADDING, app->line_h};
+        SDL_FRect rect = {(float)APP_PADDING,
+                          (float)(area_y + slot * app->line_h),
+                          (float)(app->width - 2 * APP_PADDING),
+                          (float)app->line_h};
         SDL_RenderFillRect(app->renderer, &rect);
     }
 }
@@ -856,8 +863,8 @@ static void draw_frame(App *app, bool show_caret)
     SDL_SetRenderDrawColor(app->renderer, app->theme->separator.r,
                            app->theme->separator.g, app->theme->separator.b,
                            app->theme->separator.a);
-    SDL_RenderDrawLine(app->renderer, APP_PADDING, input_y - 3,
-                       app->width - APP_PADDING, input_y - 3);
+    SDL_RenderLine(app->renderer, (float)APP_PADDING, (float)(input_y - 3),
+                   (float)(app->width - APP_PADDING), (float)(input_y - 3));
 
     /* Строка ввода с курсором. */
     char line[INPUT_MAX_BYTES + 8];
@@ -880,24 +887,18 @@ static void add_intro(App *app)
 
 static int save_screenshot(App *app, const char *path)
 {
-    SDL_Surface *shot = SDL_CreateRGBSurfaceWithFormat(
-        0, app->width, app->height, 32, SDL_PIXELFORMAT_ARGB8888);
+    /* В SDL3 поверхность создаёт сама SDL_RenderReadPixels. */
+    SDL_Surface *shot = SDL_RenderReadPixels(app->renderer, NULL);
     if (shot == NULL) {
-        hello_log("Не удалось создать поверхность для скриншота: %s", SDL_GetError());
-        return 1;
-    }
-
-    if (SDL_RenderReadPixels(app->renderer, NULL, SDL_PIXELFORMAT_ARGB8888,
-                             shot->pixels, shot->pitch) != 0) {
         hello_log("Не удалось прочитать пиксели: %s", SDL_GetError());
-        SDL_FreeSurface(shot);
         return 1;
     }
 
-    int rc = SDL_SaveBMP(shot, path) == 0 ? 0 : 1;
+    int rc = SDL_SaveBMP(shot, path) ? 0 : 1;
     if (rc != 0)
         hello_log("Не удалось сохранить %s: %s", path, SDL_GetError());
-    SDL_FreeSurface(shot);
+
+    SDL_DestroySurface(shot);
     return rc;
 }
 
@@ -925,13 +926,13 @@ int app_run(const AppOptions *options)
     app.screenshot = options->screenshot_path != NULL;
     app.running = true;
 
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
         hello_log("SDL_Init: %s", SDL_GetError());
         return 1;
     }
 
-    if (TTF_Init() != 0) {
-        hello_log("TTF_Init: %s", TTF_GetError());
+    if (!TTF_Init()) {
+        hello_log("TTF_Init: %s", SDL_GetError());
         SDL_Quit();
         return 1;
     }
@@ -954,9 +955,9 @@ int app_run(const AppOptions *options)
         return 1;
     }
 
-    app.font = TTF_OpenFont(font_path, app.cfg.font_size);
+    app.font = TTF_OpenFont(font_path, (float)app.cfg.font_size);
     if (app.font == NULL) {
-        hello_log("TTF_OpenFont(%s): %s", font_path, TTF_GetError());
+        hello_log("TTF_OpenFont(%s): %s", font_path, SDL_GetError());
         hello_close_window(app.window, app.renderer);
         TTF_Quit();
         SDL_Quit();
@@ -1018,7 +1019,7 @@ int app_run(const AppOptions *options)
     }
     load_history(&app);
 
-    app.start_ticks = SDL_GetTicks();
+    app.start_ticks = (uint32_t)SDL_GetTicks();
     app.last_frame_ticks = app.start_ticks;
 
     int target_frame_ms = 16;
@@ -1030,7 +1031,7 @@ int app_run(const AppOptions *options)
         while (SDL_PollEvent(&event))
             handle_event(&app, &event);
 
-        uint32_t now = SDL_GetTicks();
+        uint32_t now = (uint32_t)SDL_GetTicks();
         pet_update(&app.pet, now);
 
         if (app.pending_at != 0 && now >= app.pending_at)
@@ -1048,7 +1049,7 @@ int app_run(const AppOptions *options)
         }
 
         if (!app.cfg.vsync) {
-            uint32_t elapsed = SDL_GetTicks() - now;
+            uint32_t elapsed = (uint32_t)SDL_GetTicks() - now;
             if (elapsed < (uint32_t)target_frame_ms)
                 SDL_Delay((uint32_t)target_frame_ms - elapsed);
         }

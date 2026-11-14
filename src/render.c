@@ -11,12 +11,13 @@ SDL_Texture *render_text(SDL_Renderer *ren, TTF_Font *font,
     if (ren == NULL || font == NULL || utf8 == NULL || utf8[0] == '\0')
         return NULL;
 
-    SDL_Surface *surface = TTF_RenderUTF8_Blended(font, utf8, color);
+    SDL_Surface *surface = TTF_RenderText_Blended(font, utf8, strlen(utf8),
+                                                  color);
     if (surface == NULL)
         return NULL;
 
     SDL_Texture *texture = SDL_CreateTextureFromSurface(ren, surface);
-    SDL_FreeSurface(surface);
+    SDL_DestroySurface(surface);
     return texture;
 }
 
@@ -25,7 +26,8 @@ bool render_measure(TTF_Font *font, const char *utf8, int *w, int *h)
     int width = 0, height = 0;
     if (font == NULL || utf8 == NULL)
         return false;
-    if (TTF_SizeUTF8(font, utf8, &width, &height) != 0)
+    /* В SDL3_ttf функция возвращает bool, а не код ошибки. */
+    if (!TTF_GetStringSize(font, utf8, strlen(utf8), &width, &height))
         return false;
     if (w)
         *w = width;
@@ -41,10 +43,14 @@ int render_text_at(SDL_Renderer *ren, TTF_Font *font, const char *utf8,
     if (texture == NULL)
         return -1;
 
-    int w = 0, h = 0;
-    SDL_QueryTexture(texture, NULL, NULL, &w, &h);
-    SDL_Rect dst = {x, y, w, h};
-    SDL_RenderCopy(ren, texture, NULL, &dst);
+    float fw = 0.0f, fh = 0.0f;
+    SDL_GetTextureSize(texture, &fw, &fh);
+    int w = (int)fw;
+    int h = (int)fh;
+
+    /* В SDL3 рендер принимает SDL_FRect (float), а не SDL_Rect. */
+    SDL_FRect dst = {(float)x, (float)y, (float)w, (float)h};
+    SDL_RenderTexture(ren, texture, NULL, &dst);
     SDL_DestroyTexture(texture);
     return w;
 }
@@ -56,15 +62,15 @@ void render_input(SDL_Renderer *ren, TTF_Font *font, const char *utf8,
     if (ren == NULL || font == NULL || utf8 == NULL)
         return;
 
-    int line_h = TTF_FontLineSkip(font);
+    int line_h = TTF_GetFontLineSkip(font);
     int width = 0;
     int height = 0;
 
     if (utf8[0] != '\0' && render_measure(font, utf8, &width, &height)) {
         SDL_Texture *texture = render_text(ren, font, utf8, fg);
         if (texture != NULL) {
-            SDL_Rect dst = {x, y, width, height};
-            SDL_RenderCopy(ren, texture, NULL, &dst);
+            SDL_FRect dst = {(float)x, (float)y, (float)width, (float)height};
+            SDL_RenderTexture(ren, texture, NULL, &dst);
             SDL_DestroyTexture(texture);
         }
     }
@@ -86,7 +92,8 @@ void render_input(SDL_Renderer *ren, TTF_Font *font, const char *utf8,
     if (len > 0 && render_measure(font, prefix, &width, NULL))
         caret_x = x + width;
 
-    SDL_Rect bar = {caret_x, y + 1, 2, line_h - 2};
+    SDL_FRect bar = {(float)caret_x, (float)(y + 1), 2.0f,
+                     (float)(line_h - 2)};
     SDL_SetRenderDrawColor(ren, caret.r, caret.g, caret.b, caret.a);
     SDL_RenderFillRect(ren, &bar);
 }

@@ -5,7 +5,7 @@
  * с зелёным моноширинным текстом. В 2026-м переехал на SDL2,
  * но идея та же: память фраз + нечёткое совпадение.
  */
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>

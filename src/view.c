@@ -83,8 +83,12 @@ static bool push_row(View *view, const char *text, size_t len, ViewKind kind,
     row->offset = offset;
     row->length = len;
 
-    if (row->tex != NULL)
-        SDL_QueryTexture(row->tex, NULL, NULL, &row->w, &row->h);
+    if (row->tex != NULL) {
+        float fw = 0.0f, fh = 0.0f;
+        SDL_GetTextureSize(row->tex, &fw, &fh);
+        row->w = (int)fw;
+        row->h = (int)fh;
+    }
 
     if (copy != stack_buf)
         free(copy);
@@ -184,7 +188,8 @@ static bool add_line(View *view, const char *text, ViewKind kind,
     size_t index = view->line_count;
     view->lines[index].text = copy;
     view->lines[index].kind = kind;
-    view->lines[index].at_ms = SDL_GetTicks();
+    /* SDL_GetTicks в SDL3 возвращает Uint64 — храним младшие 32 бита. */
+    view->lines[index].at_ms = (uint32_t)SDL_GetTicks();
     ++view->line_count;
 
     size_t len = strlen(copy);
@@ -375,8 +380,8 @@ void view_draw(const View *view, SDL_Renderer *ren, int x, int y_top,
             continue;
 
         int y = y_top + i * line_h + (line_h - row->h) / 2;
-        SDL_Rect dst = {x, y, row->w, row->h};
-        SDL_RenderCopy(ren, row->tex, NULL, &dst);
+        SDL_FRect dst = {(float)x, (float)y, (float)row->w, (float)row->h};
+        SDL_RenderTexture(ren, row->tex, NULL, &dst);
     }
 }
 

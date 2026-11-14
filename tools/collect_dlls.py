@@ -108,11 +108,15 @@ DLL_NAME_RE = re.compile(rb"[A-Za-z0-9_.+-]{1,60}\.dll", re.IGNORECASE)
 # такой зависимости нет, поэтому ldd её не показывает, и проверка
 # только по импортам пропускает нужный файл.
 #
-# Живой случай: MSYS2 отдаёт SDL2 как sdl2-compat. Он транслирует
+# Живой случай: MSYS2 отдавал SDL2 как sdl2-compat. Он транслирует
 # вызовы SDL2 в SDL3 и без SDL3.dll не работает вовсе — приложение
-# падает с «Failed loading SDL3 library».
+# падало с «Failed loading SDL3 library».
+#
+# Сейчас проект собран на SDL3 напрямую, и эта запись остаётся на
+# случай, если попадётся обратная прослойка.
 SHIMS: tuple[tuple[bytes, str], ...] = (
     (b"sdl2-compat", "SDL3.dll"),
+    (b"sdl3-compat", "SDL2.dll"),
 )
 
 

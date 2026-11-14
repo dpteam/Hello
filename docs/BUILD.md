@@ -6,18 +6,17 @@
 |---|---|---|
 | CMake | 3.20 | cmake.org / пакетный менеджер |
 | Компилятор C | C11 | GCC, Clang, MSVC 2019+ |
-| SDL2 | 2.0.14 | libsdl.org |
-| SDL2_ttf | 2.0.15 | libsdl.org |
+| SDL3 | 3.2 | libsdl.org |
+| SDL3_ttf | 3.1 | libsdl.org |
 | Python 3.9+ | только для `tools/` | необязательно |
 | Шрифт | DejaVu Sans Mono Bold | лежит в `assets/fonts/` |
 
-SDL2_ttf 2.0.15 — минимальная версия из-за `TTF_SizeUTF8` с корректной
-обработкой суррогатов. Более старые версии работают, но могут обрезать
-эмодзи.
+Проект использует **SDL3** — версию 3.2 и новее. SDL2 не подойдёт:
+в коде другие имена функций, типы (`SDL_FRect`) и события
+(`SDL_EVENT_KEY_DOWN`).
 
-Для рисования треугольника-логотипа нужен SDL 2.0.18+ (там появился
-`SDL_RenderGeometry`). На более старых версиях проект собирается,
-логотип просто не рисуется — `#if SDL_VERSION_ATLEAST` в `app.c`.
+Если нужна сборка на SDL2 — смотрите коммит `5d63ed2`, последний
+на SDL2; там же описан обход ловушки с `sdl2-compat`.
 
 Python нужен только для утилит: генератор иконки, сбор DLL,
 разбор PE-файлов. Сама сборка проекта от него не зависит.
@@ -36,8 +35,8 @@ pacman -S --needed \
     mingw-w64-ucrt-x86_64-gcc \
     mingw-w64-ucrt-x86_64-cmake \
     mingw-w64-ucrt-x86_64-ninja \
-    mingw-w64-ucrt-x86_64-SDL2 \
-    mingw-w64-ucrt-x86_64-SDL2_ttf
+    mingw-w64-ucrt-x86_64-sdl3 \
+    mingw-w64-ucrt-x86_64-sdl3-ttf
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
@@ -61,8 +60,8 @@ cmake --build build
 
 MSVC тоже работает, но:
 
-- `find_package(SDL2 CONFIG)` требует, чтобы SDL2 был собран с CMake
-  и содержал `SDL2Config.cmake`. Официальный SDL2-devel для MSVC его
+- `find_package(SDL3 CONFIG)` требует, чтобы SDL3 был собран с CMake
+  и содержал `SDL3Config.cmake`. Официальный SDL3-devel для MSVC его
   содержит, но пути надо прописать вручную через `CMAKE_PREFIX_PATH`.
 - Иконка приложения требует `windres`, которого в MSVC нет — там `.rc`
   обрабатывается по-другому.
@@ -71,7 +70,7 @@ MSVC тоже работает, но:
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" `
-    -DCMAKE_PREFIX_PATH="C:/SDL2;C:/SDL2_ttf"
+    -DCMAKE_PREFIX_PATH="C:/SDL3;C:/SDL3_ttf"
 cmake --build build --config Release
 ```
 
@@ -81,7 +80,7 @@ cmake --build build --config Release
 
 ```bash
 sudo apt update
-sudo apt install build-essential cmake libsdl2-dev libsdl2-ttf-dev
+sudo apt install build-essential cmake libsdl3-dev libsdl3-ttf-dev
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
 ./build/hello
@@ -90,7 +89,7 @@ cmake --build build -j"$(nproc)"
 ### Fedora
 
 ```bash
-sudo dnf install gcc cmake SDL2-devel SDL2_ttf-devel
+sudo dnf install gcc cmake SDL3-devel SDL3_ttf-devel
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
 ```
@@ -98,7 +97,7 @@ cmake --build build -j"$(nproc)"
 ### Arch
 
 ```bash
-sudo pacman -S base-devel cmake sdl2 sdl2_ttf
+sudo pacman -S base-devel cmake sdl3 sdl3_ttf
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
 ```
@@ -106,16 +105,16 @@ cmake --build build -j"$(nproc)"
 ## macOS
 
 ```bash
-brew install cmake sdl2 sdl2_ttf
+brew install cmake sdl3 sdl3_ttf
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(sysctl -n hw.ncpu)"
 ./build/hello
 ```
 
-Если SDL2 не находится, укажите префикс:
+Если SDL3 не находится, укажите префикс:
 
 ```bash
-cmake -S . -B build -DCMAKE_PREFIX_PATH="$(brew --prefix sdl2);$(brew --prefix sdl2_ttf)"
+cmake -S . -B build -DCMAKE_PREFIX_PATH="$(brew --prefix sdl3);$(brew --prefix sdl3_ttf)"
 ```
 
 ## Тесты
@@ -180,13 +179,10 @@ cmake --install build --prefix /usr/local
 
 ## Портативная сборка для Windows
 
-`hello.exe` зависит от SDL2, SDL2_ttf и их транзитивных библиотек
+`hello.exe` зависит от SDL3, SDL3_ttf и их транзитивных библиотек
 (FreeType, HarfBuzz, GLib, Graphite2, libpng, zlib, bzip2, brotli,
 iconv, gettext, pcre2, GCC runtime). Без них программа не запустится
 на машине без MSYS2.
-
-Если MSYS2 отдаёт SDL2 как `sdl2-compat`, нужен ещё `SDL3.dll` —
-см. раздел «Ловушка» ниже.
 
 ### В MSYS2 — через скрипт (так делает CI)
 
@@ -220,34 +216,27 @@ ldd build/hello.exe | awk '/=> \/ucrt64\/bin\// {print $3}'
 через `LoadLibrary`: её нет в таблице импорта, значит `ldd` её не
 покажет.
 
-Живой случай: MSYS2 отдаёт SDL2 как **sdl2-compat** — тонкую прослойку
-(~380 КБ), которая транслирует вызовы SDL2 в SDL3. Внутри неё строки
-`sdl2-compat`, `SDL3.dll`, `Failed loading SDL3 library`. Без
-`SDL3.dll` приложение падает сразу:
+Именно так и случилось: MSYS2 одно время отдавал SDL2 как
+**sdl2-compat** — прослойку, которая транслирует вызовы SDL2 в SDL3
+и подгружает `SDL3.dll` динамически. `ldd` показывал полный список,
+проверка импортов проходила, а приложение падало с
 
 ```
 Failed loading SDL3 library.
 ```
 
-При этом `ldd` показывал полный список, а проверка импортов проходила
-успешно — SDL3 грузится динамически.
-
-Поэтому `collect_dlls.py` знает про прослойки (`SHIMS` в начале файла)
-и досчитывает их требования. Сейчас в таблице одна запись:
+Проект с тех пор перешёл на SDL3 напрямую, и эта конкретная проблема
+исчезла. Но механизм остался: `collect_dlls.py` знает про прослойки
+(`SHIMS` в начале файла) и досчитывает их требования.
 
 ```python
-SHIMS = ((b"sdl2-compat", "SDL3.dll"),)
+SHIMS = (
+    (b"sdl2-compat", "SDL3.dll"),
+    (b"sdl3-compat", "SDL2.dll"),
+)
 ```
 
 Если появится другая прослойка, достаточно добавить строку.
-
-Проверить, какая у вас SDL2:
-
-```bash
-# настоящий SDL2 ~2.4 МБ, sdl2-compat ~380 КБ
-ls -l /ucrt64/bin/SDL2.dll
-strings /ucrt64/bin/SDL2.dll | grep -c sdl2-compat
-```
 
 ### Без MSYS2
 
@@ -264,7 +253,7 @@ python tools/collect_dlls.py --check dist
 ```
 
 Это детерминированно и не требует запуска GUI-приложения. Проверка
-поймает и `SDL3.dll`, забытый для sdl2-compat:
+поймает и DLL, забытую для библиотеки-прослойки:
 
 ```
 ОТСУТСТВУЕТ: SDL3.dll (нужна прослойке SDL2.dll в рантайме)
@@ -303,9 +292,8 @@ Windows проверяется только полнота DLL, а реальн�
 Дистрибутив кладёт шрифт в `dist/assets/fonts/` — ровно туда, где его
 ищет конфиг по умолчанию, поэтому системные шрифты не нужны.
 
-Итоговый размер — около 13 МБ (плюс ~4 МБ, если SDL2 — это
-sdl2-compat и нужен SDL3.dll). Большую часть веса дают GLib, HarfBuzz
-и FreeType, которые тянет SDL2_ttf.
+Итоговый размер — около 15 МБ. Большую часть веса дают SDL3, GLib,
+HarfBuzz и FreeType, которые тянет SDL3_ttf.
 
 **Про Windows 7.** Бинарник собран под UCRT, ему нужны
 `api-ms-win-crt-*.dll`. На Windows 10 и 11 они есть в системе.
@@ -313,7 +301,7 @@ sdl2-compat и нужен SDL3.dll). Большую часть веса дают
 [Universal C Runtime](https://support.microsoft.com/kb/2999226)
 (обычно приходит с обновлениями).
 
-Если нужен один файл без DLL — соберите SDL2 статически
+Если нужен один файл без DLL — соберите SDL3 статически
 (`-DSDL_STATIC=ON -DSDL_SHARED=OFF`) или используйте `zig cc`.
 
 ## Генерация иконки
@@ -425,9 +413,10 @@ ctest --test-dir build --output-on-failure
 
 | Симптом | Причина | Решение |
 |---|---|---|
-| `SDL2 not found` | нет `SDL2Config.cmake` | `-DCMAKE_PREFIX_PATH=/путь/к/SDL2` |
-| `undefined reference to WinMain` | не подключён `SDL2main` | проверить, что `SDL2::SDL2main` в `target_link_libraries` |
-| `undefined reference to TTF_*` | не подключён `SDL2_ttf` | `find_package(SDL2_ttf CONFIG REQUIRED)` |
+| `SDL3 not found` | нет `SDL3Config.cmake` | `-DCMAKE_PREFIX_PATH=/путь/к/SDL3` |
+| `SDL3_ttf not found` | не установлен SDL3_ttf | `pacman -S mingw-w64-ucrt-x86_64-sdl3-ttf` |
+| `SDL.h: No such file` | заголовки SDL2 вместо SDL3 | в SDL3 путь `<SDL3/SDL.h>`; проверить, что найден SDL3 |
+| `undefined reference to TTF_*` | не подключён `SDL3_ttf` | `find_package(SDL3_ttf CONFIG REQUIRED)` |
 | `undefined reference to exp/log/sqrt` | не подключена `libm` | на glibc она отдельная; CMake подключает её сам через `find_library(m)` |
 | Кракозябры в окне | шрифт без кириллицы | использовать DejaVu Sans Mono |
 | Пустое окно | шрифт не найден | запускать из корня или указать `--font` |

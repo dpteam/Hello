@@ -7,7 +7,7 @@
 #ifndef HELLO_PLATFORM_H
 #define HELLO_PLATFORM_H
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include <stdbool.h>
 #include <stddef.h>
 
